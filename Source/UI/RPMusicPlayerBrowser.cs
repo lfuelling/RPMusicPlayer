@@ -23,6 +23,15 @@ namespace RPMusicPlayer
         private readonly TextMenu menu = new TextMenu();
         private List<MusicTrack> view = new List<MusicTrack>();
 
+        /// <summary>
+        /// Menu indices of the rows left and right can step through, so those
+        /// buttons act on whichever of them is under the cursor. -1 when the row
+        /// is not on the page, which stops a stale index from firing.
+        /// </summary>
+        private int sortRow = -1;
+        private int orderRow = -1;
+        private int filterRow = -1;
+
         public override void OnAwake()
         {
             base.OnAwake();
@@ -61,6 +70,9 @@ namespace RPMusicPlayer
         private void Rebuild(PlayerState state, PlayerManager player)
         {
             menu.Clear();
+            sortRow = -1;
+            orderRow = -1;
+            filterRow = -1;
 
             if (state == null)
             {
@@ -85,7 +97,7 @@ namespace RPMusicPlayer
                     ? "No music found!"
                     : "Nothing matches the filter.";
                 menu.Add(new TextMenu.Item(message) { isDisabled = true });
-                AddControls(state, player);
+                AddControls(state);
                 return;
             }
 
@@ -117,22 +129,26 @@ namespace RPMusicPlayer
 
             menu.currentSelection = selection + LeadingItems;
 
-            AddControls(state, player);
+            AddControls(state);
         }
 
-        private void AddControls(PlayerState state, PlayerManager player)
+        private void AddControls(PlayerState state)
         {
             menu.Add(new TextMenu.Item());
 
             var sortLabel = state.SortField + (state.Descending ? " v" : " ^");
             menu.Add(new TextMenu.Item("Sort by: " + sortLabel, OnCycleSort, 0));
+            sortRow = menu.Count - 1;
+
             menu.Add(new TextMenu.Item("Order: " + (state.Descending ? "descending" : "ascending"), OnToggleDirection, 0));
+            orderRow = menu.Count - 1;
 
             var filterLabel = string.IsNullOrEmpty(state.Filter) ? "none" : state.Filter;
             menu.Add(new TextMenu.Item("Filter: " + filterLabel, OnCycleFilter, 0)
             {
-                isDisabled = player.Library.Count < 2
+                isDisabled = !FilterEnabled()
             });
+            filterRow = menu.Count - 1;
 
             menu.Add(new TextMenu.Item());
             menu.Add(new TextMenu.Item("Rescan music folder", OnRescan, 0));
@@ -169,6 +185,49 @@ namespace RPMusicPlayer
             {
                 LeavePages();
             }
+            else if (Matches(map, MonitorButton.Left, buttonID))
+            {
+                StepRow(-1);
+            }
+            else if (Matches(map, MonitorButton.Right, buttonID))
+            {
+                StepRow(1);
+            }
+        }
+
+        /// <summary>
+        /// Left and right step backwards or forwards through whichever of the sort,
+        /// order and filter rows is under the cursor, so select is not the only way
+        /// to reach them. On a song row or on rescan they do nothing, so they never
+        /// move between the pages: that is what the next and previous buttons are for.
+        /// </summary>
+        private void StepRow(int direction)
+        {
+            var selection = menu.currentSelection;
+
+            if (selection == sortRow)
+            {
+                CycleSort(direction);
+            }
+            else if (selection == orderRow)
+            {
+                SetDirection(direction > 0);
+            }
+            else if (selection == filterRow && FilterEnabled())
+            {
+                CycleFilter(direction);
+            }
+        }
+
+        /// <summary>
+        /// The filter row is greyed out when the library is too small for a filter
+        /// to mean anything, so left and right have to honour the same rule that
+        /// select does. Shared with the row itself so the two cannot drift apart.
+        /// </summary>
+        private bool FilterEnabled()
+        {
+            var player = Player;
+            return player != null && player.Library.Count >= 2;
         }
 
         private void RememberSelection()
@@ -218,10 +277,10 @@ namespace RPMusicPlayer
 
         private void OnCycleSort(int index, TextMenu.Item item)
         {
-            CycleSort();
+            CycleSort(1);
         }
 
-        private void CycleSort()
+        private void CycleSort(int direction)
         {
             var state = State;
             if (state == null)
@@ -229,19 +288,26 @@ namespace RPMusicPlayer
                 return;
             }
 
-            state.SortField = Next(state.SortField);
+            state.SortField = Step(state.SortField, direction);
             state.BrowserSelection = 0;
             MarkDirty();
         }
 
-        private static SortField Next(SortField current)
+        /// <summary>
+        /// The next or previous sort field, wrapping around. The order of the
+        /// fields is the one the label lists them in, so both directions read
+        /// the same way round the cycle.
+        /// </summary>
+        private static SortField Step(SortField current, int direction)
         {
+            var forward = direction > 0;
             switch (current)
             {
-                case SortField.Artist: return SortField.Album;
-                case SortField.Album: return SortField.Genre;
-                case SortField.Genre: return SortField.Title;
-                case SortField.Title: return SortField.FileName;
+                case SortField.Artist: return forward ? SortField.Album : SortField.FileName;
+                case SortField.Album: return forward ? SortField.Genre : SortField.Artist;
+                case SortField.Genre: return forward ? SortField.Title : SortField.Album;
+                case SortField.Title: return forward ? SortField.FileName : SortField.Genre;
+                case SortField.FileName: return forward ? SortField.Artist : SortField.Title;
                 default: return SortField.Artist;
             }
         }
@@ -256,7 +322,26 @@ namespace RPMusicPlayer
             }
         }
 
+        /// <summary>
+        /// Left sorts ascending and right sorts descending, rather than toggling,
+        /// so the two buttons mean the same thing here as they do for the volume.
+        /// </summary>
+        private void SetDirection(bool descending)
+        {
+            var state = State;
+            if (state != null && state.Descending != descending)
+            {
+                state.Descending = descending;
+                MarkDirty();
+            }
+        }
+
         private void OnCycleFilter(int index, TextMenu.Item item)
+        {
+            CycleFilter(1);
+        }
+
+        private void CycleFilter(int direction)
         {
             var state = State;
             var player = Player;
@@ -265,7 +350,7 @@ namespace RPMusicPlayer
                 return;
             }
 
-            state.Filter = NextFilter(state.Filter, player.Library);
+            state.Filter = StepFilter(state.Filter, player.Library, direction);
             state.BrowserSelection = 0;
             MarkDirty();
         }
@@ -276,7 +361,7 @@ namespace RPMusicPlayer
         /// filter matches the sort field the list is using, which is what a player
         /// expects from it.
         /// </summary>
-        private static string NextFilter(string current, MusicLibrary library)
+        private static string StepFilter(string current, MusicLibrary library, int direction)
         {
             var options = FilterOptions(library);
             if (options.Count == 0)
@@ -288,7 +373,7 @@ namespace RPMusicPlayer
             {
                 if (string.Equals(options[i], current, StringComparison.OrdinalIgnoreCase))
                 {
-                    return options[(i + 1) % options.Count];
+                    return options[(i + direction + options.Count) % options.Count];
                 }
             }
 

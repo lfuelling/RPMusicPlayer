@@ -37,6 +37,7 @@ That creates this in your KSP folder, leaving any music you have already put the
 GameData/RPMusicPlayer/
 ├── Plugins/RPMusicPlayer.dll
 ├── RPMusicPlayer.cfg
+├── LICENSE
 └── Music/            <- put your music here
 ```
 
@@ -60,12 +61,18 @@ anything.
 | --- | --- | --- |
 | Up / Down | Move the cursor | Move the cursor |
 | Select | Activate the highlighted row | Activate the highlighted row |
-| Left / Right | Nothing to change here | Change the volume when the volume row is selected |
+| Left / Right | Step through the highlighted row when it is Sort by, Order or Filter | Change the volume when the volume row is selected |
 | Next / Prev | Switch to Now Playing | Switch to the library |
 | Back | Back to the pod's screen | Back to the library |
 
-Sort field and direction, the filter and the rescan are all menu rows in the library, so they do
-not need the left and right buttons.
+Sort field and direction, the filter and the rescan are all menu rows in the
+library. Left and right step backwards and forwards through the highlighted row
+when it is one of the three settings, so you can go back to the previous sort
+field or letter without cycling all the way round. They do nothing on a song row
+or on the rescan row, and they never move between the two pages: that is what
+the next and previous buttons are for.
+
+On the Order row, left sorts ascending and right sorts descending.
 
 The player controls are a selectable list, the same shape as the browser:
 
