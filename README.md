@@ -176,3 +176,18 @@ RasterPropMonitor assemblies, which is handy when working out which API is actua
 `tools/dump-il.ps1` disassembles a single method when a signature is not enough. All three read
 `Mono.Cecil.dll` from the KSP install; they take `-KspDir`, or fall back to the `KSP_DIR`
 environment variable and then the default Steam install.
+
+## License
+
+Copyright (C) 2026 Lukas Fülling <lukas@k40s.net>
+
+RPMusicPlayer is free software, licensed under the
+[GNU General Public License v3.0 or later](LICENSE). You may use, study,
+modify and redistribute it, and the people you give it to must be able to do
+the same and get the source. There is no warranty of any kind.
+The full text is in [`LICENSE`](LICENSE).
+
+Kerbal Space Program is a trademark of Squad, and RasterPropMonitor is a
+separate project by its own authors. Neither is part of this work, and
+neither is endorsed by it; the plugin only talks to both through their
+public APIs.
