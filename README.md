@@ -2,7 +2,9 @@
 
 A music player for [RasterPropMonitor](https://github.com/FirstPersonKSP/RasterPropMonitor) in Kerbal Space Program 1.
 
-## What it does
+## About
+
+See it in action: https://www.youtube.com/watch?v=G_BlamEWC4s
 
 - Reads your music from a folder you can choose and shows it on the RasterPropMonitor screens.
 - The browser lists every song, sorted and filtered by ID3 tags (artist, album, genre, title) or file name.
@@ -13,7 +15,7 @@ A music player for [RasterPropMonitor](https://github.com/FirstPersonKSP/RasterP
   back up where it left off when you return. It keeps playing when you step out of the cockpit to
   look at your ship.
 
-Everything is controlled by the screen buttons: up, down, left, right, next, prev, select and
+The UI controlled by the screen buttons: up, down, left, right, next, prev, select and
 back.
 
 ## Requirements
