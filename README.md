@@ -206,3 +206,6 @@ Kerbal Space Program is a trademark of Squad, and RasterPropMonitor is a
 separate project by its own authors. Neither is part of this work, and
 neither is endorsed by it; the plugin only talks to both through their
 public APIs.
+
+This software was written using LLM/AI.
+
