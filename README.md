@@ -23,6 +23,14 @@ back.
 
 ## Installing
 
+1. Go to the latest release
+2. Download the top zip file (not source)
+3. Extract the downloaded zip and copy the contents of the `GameData` folder into your KSP installations `GameData` folder
+4. (Optional) Read and adjust the config file according to your needs
+5. Add music into the music folder
+
+## Building
+
 Build and deploy straight into your KSP folder:
 
 ```powershell
