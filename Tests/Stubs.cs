@@ -20,6 +20,10 @@ namespace RPMusicPlayer
         {
         }
 
+        internal static void Warning(string format, params object[] args)
+        {
+        }
+
         internal static void Error(string message)
         {
         }

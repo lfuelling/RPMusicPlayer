@@ -179,7 +179,7 @@ namespace RPMusicPlayer
                 return;
             }
 
-            // The songs start after the now playing link and the header.
+            // The songs start after the spacer and the header.
             var songIndex = menu.currentSelection - LeadingItems;
             if (songIndex >= 0 && songIndex < view.Count)
             {
@@ -208,11 +208,6 @@ namespace RPMusicPlayer
 
             // Picking a song takes you to the player; the next and previous buttons
             // then move between the two views.
-            GoToPlayerPage();
-        }
-
-        private void OnNowPlaying(int index, TextMenu.Item item)
-        {
             GoToPlayerPage();
         }
 

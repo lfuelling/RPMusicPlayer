@@ -2,8 +2,8 @@
 
   <!--
     Standalone checks for the parts of the plugin that do not need Kerbal Space
-    Program: the ID3 reader and the track formatting. Run it with:
-        dotnet run (from the Tests folder)
+    Program: the tag reader and the track formatting. See the Development
+    section of the README for how to run them.
   -->
 
   <PropertyGroup>

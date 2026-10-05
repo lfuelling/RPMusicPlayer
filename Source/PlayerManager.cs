@@ -23,6 +23,19 @@ namespace RPMusicPlayer
 
         private readonly Dictionary<Guid, PlayerState> states = new Dictionary<Guid, PlayerState>();
 
+        private bool scanRequested = true;
+        private bool scanRunning;
+
+        // Page wiring: which vessel we are patching, and how often to retry.
+        private float nextInjectAttempt;
+        private Guid knownVessel = Guid.Empty;
+        private float inVesselSince = -1f;
+        private bool warnedNoMonitors;
+
+        // Context tracking: the vessel and pod state playback was last settled for.
+        private Guid lastVesselId = Guid.Empty;
+        private bool lastInsidePodForPause;
+
         /// <summary>Raised when the track list changes, so open pages can redraw.</summary>
         internal event Action LibraryChanged;
 
@@ -31,9 +44,6 @@ namespace RPMusicPlayer
 
         /// <summary>The vessel the player is currently controlling, if any.</summary>
         internal PlayerState CurrentState { get; private set; }
-
-        private bool scanRequested = true;
-        private bool scanRunning;
 
         internal void Initialize()
         {
@@ -70,14 +80,6 @@ namespace RPMusicPlayer
 
         // ---------------------------------------------------------------- page wiring
 
-        private float nextInjectAttempt;
-        private Guid knownVessel = Guid.Empty;
-        private float inVesselSince = -1f;
-        private bool warnedNoMonitors;
-        private bool lastInsidePod;
-        private float nextHeartbeat;
-        private int heartbeats;
-
         /// <summary>
         /// Keeps the music pages attached to the monitors of whatever vessel is loaded.
         /// Runs on the persistent host, so it does not matter which scenes have addons.
@@ -87,7 +89,6 @@ namespace RPMusicPlayer
             if (!FlightContext.HasActiveVessel)
             {
                 inVesselSince = -1f;
-                lastInsidePod = false;
                 return;
             }
 
@@ -120,18 +121,6 @@ namespace RPMusicPlayer
                     Log.Warning("In a vessel but no RasterPropMonitor pages could be added. Check that the IVA has a monitor screen.");
                 }
             }
-
-            lastInsidePod = FlightContext.InsidePod;
-
-            // A few low frequency lines proving the per frame work is alive in flight.
-            // Silently doing nothing was the hardest part of this to debug.
-            if (heartbeats < 5 && Time.realtimeSinceStartup >= nextHeartbeat)
-            {
-                nextHeartbeat = Time.realtimeSinceStartup + 5f;
-                heartbeats++;
-                Log.Info("Heartbeat: vessel '{0}', inside pod {1}, monitors patched {2}.",
-                    vessel.vesselName, FlightContext.InsidePod, PageInjector.IsPatched);
-            }
         }
 
         /// <summary>
@@ -157,11 +146,6 @@ namespace RPMusicPlayer
         }
 
         // ---------------------------------------------------------------- context
-
-        private Guid lastVesselId = Guid.Empty;
-
-        /// <summary>Tracked separately from the page wiring's copy of the same idea.</summary>
-        private bool lastInsidePodForPause;
 
         private void UpdateContext()
         {

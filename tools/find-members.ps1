@@ -1,10 +1,40 @@
+<#
+.SYNOPSIS
+    Finds the members of an assembly whose name matches a pattern.
+
+.DESCRIPTION
+    Useful when you know what something is called but not where it lives: it lists
+    every method, property and field whose name matches, with its declaring type.
+
+.PARAMETER Assembly
+    Path to the assembly to search.
+
+.PARAMETER Pattern
+    Regular expression matched against member names.
+
+.PARAMETER KspDir
+    KSP install, used to find Mono.Cecil.dll. Defaults to $env:KSP_DIR, then the
+    default Steam install.
+
+.EXAMPLE
+    ./find-members.ps1 -Assembly .\RasterPropMonitor.dll -Pattern "Button"
+#>
 param(
     [Parameter(Mandatory = $true)][string]$Assembly,
-    [Parameter(Mandatory = $true)][string]$Pattern
+    [Parameter(Mandatory = $true)][string]$Pattern,
+    [string]$KspDir = $env:KSP_DIR
 )
 
-$kspManaged = "C:\Program Files (x86)\Steam\steamapps\common\Kerbal Space Program\KSP_x64_Data\Managed"
-Add-Type -Path (Join-Path $kspManaged "Mono.Cecil.dll")
+if ([string]::IsNullOrWhiteSpace($KspDir)) {
+    $KspDir = 'C:\Program Files (x86)\Steam\steamapps\common\Kerbal Space Program'
+}
+
+$cecil = Join-Path $KspDir 'KSP_x64_Data\Managed\Mono.Cecil.dll'
+if (-not (Test-Path -LiteralPath $cecil)) {
+    throw "Mono.Cecil.dll not found at $cecil. Pass -KspDir, or set the KSP_DIR environment variable."
+}
+
+Add-Type -Path $cecil
 
 $asm = [Mono.Cecil.AssemblyDefinition]::ReadAssembly($Assembly)
 $regex = New-Object System.Text.RegularExpressions.Regex($Pattern)

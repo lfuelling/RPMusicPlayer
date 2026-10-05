@@ -421,138 +421,138 @@ namespace RPMusicPlayer
         }
 
         /// <summary>
-                /// Fills in any field that is still empty from <paramref name="fallback"/>.
-                /// </summary>
-                private static TrackTags Merge(TrackTags tags, TrackTags fallback)
+        /// Fills in any field that is still empty from <paramref name="fallback"/>.
+        /// </summary>
+        private static TrackTags Merge(TrackTags tags, TrackTags fallback)
+        {
+            if (tags == null)
+            {
+                return fallback;
+            }
+            if (fallback == null)
+            {
+                return tags;
+            }
+
+            if (string.IsNullOrEmpty(tags.Title)) { tags.Title = fallback.Title; }
+            if (string.IsNullOrEmpty(tags.Artist)) { tags.Artist = fallback.Artist; }
+            if (string.IsNullOrEmpty(tags.Album)) { tags.Album = fallback.Album; }
+            if (string.IsNullOrEmpty(tags.Genre)) { tags.Genre = fallback.Genre; }
+
+            return tags;
+        }
+
+        /// <summary>
+        /// Reads the tags of a RIFF/WAVE file.
+        ///
+        /// Wave files do not use ID3 at the start of the file; they carry a LIST/INFO
+        /// chunk, and often an "ID3 " chunk holding a normal ID3v2 tag (usually mostly
+        /// cover art) alongside the audio. Both are read, with the ID3 tag winning
+        /// because it carries more.
+        /// </summary>
+        private static TrackTags ReadRiff(FileStream stream)
+        {
+            var tags = new TrackTags();
+            var info = new TrackTags();
+
+            long position = 12;
+            while (position + 8 <= stream.Length)
+            {
+                stream.Position = position;
+                var chunkHeader = new byte[8];
+                if (!ReadFully(stream, chunkHeader))
                 {
-                    if (tags == null)
-                    {
-                        return fallback;
-                    }
-                    if (fallback == null)
-                    {
-                        return tags;
-                    }
-
-                    if (string.IsNullOrEmpty(tags.Title)) { tags.Title = fallback.Title; }
-                    if (string.IsNullOrEmpty(tags.Artist)) { tags.Artist = fallback.Artist; }
-                    if (string.IsNullOrEmpty(tags.Album)) { tags.Album = fallback.Album; }
-                    if (string.IsNullOrEmpty(tags.Genre)) { tags.Genre = fallback.Genre; }
-
-                    return tags;
+                    break;
                 }
 
-                /// <summary>
-                /// Reads the tags of a RIFF/WAVE file.
-                ///
-                /// Wave files do not use ID3 at the start of the file; they carry a LIST/INFO
-                /// chunk, and often an "ID3 " chunk holding a normal ID3v2 tag (usually mostly
-                /// cover art) alongside the audio. Both are read, with the ID3 tag winning
-                /// because it carries more.
-                /// </summary>
-                private static TrackTags ReadRiff(FileStream stream)
-                {
-                    var tags = new TrackTags();
-                    var info = new TrackTags();
+                var id = Encoding.ASCII.GetString(chunkHeader, 0, 4);
+                long size = ReadLittleEndianInt32(chunkHeader, 4);
+                long dataStart = position + 8;
 
-                    long position = 12;
-                    while (position + 8 <= stream.Length)
+                // Guard against a truncated or nonsensical chunk size.
+                if (size < 0 || dataStart + size > stream.Length)
+                {
+                    break;
+                }
+
+                if (string.Equals(id, "LIST", StringComparison.OrdinalIgnoreCase))
+                {
+                    ReadInfoChunk(stream, dataStart, size, info);
+                }
+                else if (id.StartsWith("id3", StringComparison.OrdinalIgnoreCase))
+                {
+                    stream.Position = dataStart;
+                    Merge(tags, ReadId3v2(stream));
+                }
+
+                // Chunks are padded to an even size.
+                position = dataStart + size + (size & 1);
+            }
+
+            return Merge(tags, info);
+        }
+
+        /// <summary>Reads the sub chunks of a LIST/INFO chunk.</summary>
+        private static void ReadInfoChunk(FileStream stream, long start, long size, TrackTags tags)
+        {
+            // The first four bytes are the list type, which has to be "INFO".
+            var type = new byte[4];
+            stream.Position = start;
+            if (!ReadFully(stream, type) || type[0] != 'I' || type[1] != 'N' || type[2] != 'F' || type[3] != 'O')
+            {
+                return;
+            }
+
+            long position = start + 4;
+            long end = start + size;
+
+            while (position + 8 <= end)
+            {
+                stream.Position = position;
+                var subHeader = new byte[8];
+                if (!ReadFully(stream, subHeader))
+                {
+                    return;
+                }
+
+                var id = Encoding.ASCII.GetString(subHeader, 0, 4);
+                int subSize = (int)Math.Min(ReadLittleEndianInt32(subHeader, 4), end - position - 8);
+                if (subSize < 0)
+                {
+                    return;
+                }
+
+                var value = new byte[subSize];
+                if (!ReadFully(stream, value))
+                {
+                    return;
+                }
+
+                var text = Clean(DecodeLatin1(value, 0, value.Length));
+                if (text != null)
+                {
+                    switch (id.ToUpperInvariant())
                     {
-                        stream.Position = position;
-                        var chunkHeader = new byte[8];
-                        if (!ReadFully(stream, chunkHeader))
-                        {
+                            case "INAM":
+                            tags.Title = tags.Title ?? text;
                             break;
-                        }
-
-                        var id = Encoding.ASCII.GetString(chunkHeader, 0, 4);
-                        long size = ReadLittleEndianInt32(chunkHeader, 4);
-                        long dataStart = position + 8;
-
-                        // Guard against a truncated or nonsensical chunk size.
-                        if (size < 0 || dataStart + size > stream.Length)
-                        {
+                            case "IART":
+                            tags.Artist = tags.Artist ?? text;
                             break;
-                        }
-
-                        if (string.Equals(id, "LIST", StringComparison.OrdinalIgnoreCase))
-                        {
-                            ReadInfoChunk(stream, dataStart, size, info);
-                        }
-                        else if (id.StartsWith("id3", StringComparison.OrdinalIgnoreCase))
-                        {
-                            stream.Position = dataStart;
-                            Merge(tags, ReadId3v2(stream));
-                        }
-
-                        // Chunks are padded to an even size.
-                        position = dataStart + size + (size & 1);
-                    }
-
-                    return Merge(tags, info);
-                }
-
-                /// <summary>Reads the sub chunks of a LIST/INFO chunk.</summary>
-                private static void ReadInfoChunk(FileStream stream, long start, long size, TrackTags tags)
-                {
-                    // The first four bytes are the list type, which has to be "INFO".
-                    var type = new byte[4];
-                    stream.Position = start;
-                    if (!ReadFully(stream, type) || type[0] != 'I' || type[1] != 'N' || type[2] != 'F' || type[3] != 'O')
-                    {
-                        return;
-                    }
-
-                    long position = start + 4;
-                    long end = start + size;
-
-                    while (position + 8 <= end)
-                    {
-                        stream.Position = position;
-                        var subHeader = new byte[8];
-                        if (!ReadFully(stream, subHeader))
-                        {
-                            return;
-                        }
-
-                        var id = Encoding.ASCII.GetString(subHeader, 0, 4);
-                        int subSize = (int)Math.Min(ReadLittleEndianInt32(subHeader, 4), end - position - 8);
-                        if (subSize < 0)
-                        {
-                            return;
-                        }
-
-                        var value = new byte[subSize];
-                        if (!ReadFully(stream, value))
-                        {
-                            return;
-                        }
-
-                        var text = Clean(DecodeLatin1(value, 0, value.Length));
-                        if (text != null)
-                        {
-                            switch (id.ToUpperInvariant())
-                            {
-                                case "INAM":
-                                    tags.Title = tags.Title ?? text;
-                                    break;
-                                case "IART":
-                                    tags.Artist = tags.Artist ?? text;
-                                    break;
-                                case "IPRD":
-                                    tags.Album = tags.Album ?? text;
-                                    break;
-                                case "IGNR":
-                                    tags.Genre = tags.Genre ?? text;
-                                    break;
-                            }
-                        }
-
-                        position += 8 + subSize + (subSize & 1);
+                            case "IPRD":
+                            tags.Album = tags.Album ?? text;
+                            break;
+                            case "IGNR":
+                            tags.Genre = tags.Genre ?? text;
+                            break;
                     }
                 }
 
-                private static TrackTags ReadId3v2(FileStream stream)
+                position += 8 + subSize + (subSize & 1);
+            }
+        }
+
+        private static TrackTags ReadId3v2(FileStream stream)
         {
             var header = new byte[10];
             if (!ReadFully(stream, header))
@@ -843,17 +843,17 @@ namespace RPMusicPlayer
         }
 
         /// <summary>
-                /// RIFF stores its sizes little endian, unlike ID3 which is big endian.
-                /// </summary>
-                private static long ReadLittleEndianInt32(byte[] buffer, int offset)
-                {
-                    return (long)(uint)(buffer[offset]
+        /// RIFF stores its sizes little endian, unlike ID3 which is big endian.
+        /// </summary>
+        private static long ReadLittleEndianInt32(byte[] buffer, int offset)
+        {
+            return (long)(uint)(buffer[offset]
                          | ((long)(uint)buffer[offset + 1] << 8)
                          | ((long)(uint)buffer[offset + 2] << 16)
                          | ((long)(uint)buffer[offset + 3] << 24));
-                }
+        }
 
-                private static long ReadBigEndianInt32(byte[] buffer, int offset)
+        private static long ReadBigEndianInt32(byte[] buffer, int offset)
         {
             return ((long)(uint)buffer[offset] << 24)
                  | ((long)(uint)buffer[offset + 1] << 16)

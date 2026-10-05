@@ -8,7 +8,7 @@ A music player for [RasterPropMonitor](https://github.com/FirstPersonKSP/RasterP
 - The browser lists every song, sorted and filtered by ID3 tags (artist, album, genre, title) or file name.
 - Picking a song starts it, with the rest of the current view queued up behind it.
 - A player page shows the track details, position and the transport controls.
-- Each vessel keeps its own queue, volume and browsing settings.
+- Each vessel keeps its own queue and browsing settings. Volume is shared by the whole plugin.
 - Music pauses when you switch vessel or go to the space centre or a tracking station, and picks
   back up where it left off when you return. It keeps playing when you step out of the cockpit to
   look at your ship.
@@ -70,17 +70,17 @@ not need the left and right buttons.
 The player controls are a selectable list, the same shape as the browser:
 
 ```
-<<  Previous
-Pause
-Next  >>
+Play
+Next Track
+Previous Track
 Shuffle: off
 Repeat:  off
-Volume:  70%   (-)
-Volume:  70%   (+)
->>  LIBRARY  >>
+Volume:  70%
+Queue:   3 of 42
 ```
 
-On/off settings are shown in green when active. Repeat cycles `off` → `ALL` → `ONE`.
+On/off settings are shown in green when active. Repeat cycles `off` → `ALL` → `ONE`. The queue row
+appears only once something is playing.
 
 ## Configuration
 
@@ -98,6 +98,10 @@ On/off settings are shown in green when active. Repeat cycles `off` → `ALL` �
 | `ENTRYBUTTON` | `auto` | Which button opens the player. `auto`, `screen`, `none`, or a button name. |
 | `ENTRYPAGE` | `shipinfo` | Page name whose button should open the player, making it a second mode on that button. Overrides `ENTRYBUTTON`. On the stock MFD `shipinfo` is the button labelled DATA. |
 
+Tags are read from ID3v1 and ID3v2.2/2.3/2.4 in mp3 style files, from the `LIST`/`INFO` and
+`ID3` chunks of wave files, and from the Vorbis comments of ogg (Vorbis and Opus) and flac
+files. Anything else falls back to the file name.
+
 ## Memory use
 
 Scanning the music folder only reads tag headers, so a library of any size costs a few MB of
@@ -105,6 +109,13 @@ strings. Audio itself is decoded one track at a time, but a long wave file decod
 times its own size, so files over `STREAMABOVE` megabytes are streamed from disk instead. A
 streamed track keeps memory flat but cannot be resumed from its position, so it restarts from the
 beginning.
+
+## Reporting a problem
+
+Everything the plugin does is logged with a `[RPMusicPlayer]` prefix, so `KSP.log` in your KSP
+folder is the thing to look at first. It records the music folder it scanned, the file extensions
+it accepted, which monitor it patched, which button opens the player, and why a track failed to
+play. Attach the relevant lines when you report something.
 
 ## How it hooks into RasterPropMonitor
 
@@ -145,7 +156,7 @@ per vessel queue and playback position are unaffected by going outside.
 
 ```powershell
 dotnet build                 # the plugin
-dotnet run --project Tests   # ID3 reader and formatting checks
+dotnet run --project Tests   # tag reader and formatting checks
 ```
 
 To see what the tag reader makes of a real music folder, outside the game:
@@ -154,10 +165,6 @@ To see what the tag reader makes of a real music folder, outside the game:
 dotnet run --project Tests -- "C:\Games\KSP\GameData\RPMusicPlayer\Music"
 ```
 
-Tags are read from ID3v1 and ID3v2.2/2.3/2.4 in mp3 style files, from the `LIST`/`INFO` and
-`ID3` chunks of wave files, and from the Vorbis comments of ogg (Vorbis and Opus) and flac
-files. Anything else falls back to the file name.
-
 The KSP folder is a property, so you can point the build anywhere:
 
 ```powershell
@@ -165,4 +172,7 @@ dotnet build /p:KSPDir="D:\Games\KSP"
 ```
 
 `tools/dump-types.ps1` and `tools/find-members.ps1` dump types and members from the KSP and
-RasterPropMonitor assemblies, which is handy when working out which API is actually available.
+RasterPropMonitor assemblies, which is handy when working out which API is actually available, and
+`tools/dump-il.ps1` disassembles a single method when a signature is not enough. All three read
+`Mono.Cecil.dll` from the KSP install; they take `-KspDir`, or fall back to the `KSP_DIR`
+environment variable and then the default Steam install.

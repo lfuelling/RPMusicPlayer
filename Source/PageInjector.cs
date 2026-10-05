@@ -28,24 +28,12 @@ namespace RPMusicPlayer
         private static readonly FieldInfo ModuleConfigField = typeof(RasterPropMonitor)
             .GetField("moduleConfig", BindingFlags.Instance | BindingFlags.NonPublic);
 
-       
-
-                /// <summary>The button name that opens the music pages on the last patched monitor.</summary>
-                internal static string EntryButtonName { get; private set; }
-
-                /// <summary>True once at least one monitor has had the music pages added.</summary>
-                internal static bool IsPatched
-                {
-                    get { return Injected.Count > 0; }
-                }
-
         /// <summary>Pages we created, per monitor instance id.</summary>
         private static readonly Dictionary<int, List<MonitorPage>> Injected = new Dictionary<int, List<MonitorPage>>();
 
         internal static void Reset()
         {
             Injected.Clear();
-            EntryButtonName = null;
         }
 
         /// <summary>
@@ -231,7 +219,6 @@ namespace RPMusicPlayer
                 Log.Info("Music pages added to the '{0}' monitor, opened with '{1}'.",
                     monitor.internalModel.internalName, entryName);
 
-                EntryButtonName = entryName;
                 DumpPageMap(monitor);
             }
             catch (Exception e)
@@ -482,7 +469,6 @@ namespace RPMusicPlayer
                 Log.Info("    page '{0}' is on button '{1}'", pair.Key, pair.Value);
             }
         }
-
 
         /// <summary>
         /// Finds one of the pages we added, so the pages can switch to each other.

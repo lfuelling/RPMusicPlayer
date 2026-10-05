@@ -1,10 +1,41 @@
+<#
+.SYNOPSIS
+    Lists the public types and members of a KSP or RasterPropMonitor assembly.
+
+.DESCRIPTION
+    Dumps signatures only, which is what you want when working out which API is
+    actually available to call. For the instructions inside a single method, see
+    find-members.ps1 and dump-il.ps1.
+
+.PARAMETER Assembly
+    Path to the assembly to read, for example KSP_x64_Data\Managed\Assembly-CSharp.dll.
+
+.PARAMETER Filter
+    Optional regular expression; only types whose full name matches are listed.
+
+.PARAMETER KspDir
+    KSP install, used to find Mono.Cecil.dll. Defaults to $env:KSP_DIR, then the
+    default Steam install.
+
+.EXAMPLE
+    ./dump-types.ps1 -Assembly ..\..\KSP_x64_Data\Managed\Assembly-CSharp.dll -Filter Camera
+#>
 param(
     [Parameter(Mandatory = $true)][string]$Assembly,
-    [string]$Filter = ""
+    [string]$Filter = "",
+    [string]$KspDir = $env:KSP_DIR
 )
 
-$kspManaged = "C:\Program Files (x86)\Steam\steamapps\common\Kerbal Space Program\KSP_x64_Data\Managed"
-Add-Type -Path (Join-Path $kspManaged "Mono.Cecil.dll")
+if ([string]::IsNullOrWhiteSpace($KspDir)) {
+    $KspDir = 'C:\Program Files (x86)\Steam\steamapps\common\Kerbal Space Program'
+}
+
+$cecil = Join-Path $KspDir 'KSP_x64_Data\Managed\Mono.Cecil.dll'
+if (-not (Test-Path -LiteralPath $cecil)) {
+    throw "Mono.Cecil.dll not found at $cecil. Pass -KspDir, or set the KSP_DIR environment variable."
+}
+
+Add-Type -Path $cecil
 
 $asm = [Mono.Cecil.AssemblyDefinition]::ReadAssembly($Assembly)
 

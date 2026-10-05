@@ -13,7 +13,7 @@ namespace RPMusicPlayer
     {
         internal const string ConfigNodeName = "RPMUSICPLAYER";
 
-                private const string DefaultMusicPath = "GameData/RPMusicPlayer/Music";
+        private const string DefaultMusicPath = "GameData/RPMusicPlayer/Music";
 
         private static Settings current;
 
@@ -39,8 +39,8 @@ namespace RPMusicPlayer
         /// <summary>Scan sub folders of the music folder as well.</summary>
         internal bool ScanSubFolders = true;
 
-                /// <summary>Scan the music folder when the game starts.</summary>
-                internal bool ScanOnStart = true;
+        /// <summary>Scan the music folder when the game starts.</summary>
+        internal bool ScanOnStart = true;
 
         /// <summary>Lower case file extensions that are considered playable, without the dot.</summary>
         internal readonly List<string> Extensions = new List<string>();
