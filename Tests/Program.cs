@@ -11,14 +11,25 @@ namespace RPMusicPlayer.Tests
         private static int checks;
         private static readonly List<string> TempFiles = new List<string>();
 
-        private static int Main()
+        private static int Main(string[] args)
         {
+            if (args.Length > 0)
+            {
+                return Inspect.Run(args[0]);
+            }
+
             Id3v23Latin1();
             Id3v24Utf16();
             Id3v22ShortFrames();
             Id3v1Only();
             NumericGenre();
             NoTags();
+            WavInfoChunks();
+            WavEmbeddedId3Chunk();
+            OggVorbisComments();
+            FlacVorbisComments();
+            OggPacketAcrossPages();
+            OggWithVideoStream();
             Durations();
 
             foreach (var file in TempFiles)
@@ -117,6 +128,349 @@ namespace RPMusicPlayer.Tests
             {
                 Fail("a file with no tags should report none");
             }
+        }
+
+        /// <summary>
+                /// A wave file with only LIST/INFO tags, which is how most taggers write them.
+                /// </summary>
+                private static void WavInfoChunks()
+                {
+                    var body = new List<byte>();
+                    AddInfoSubChunk(body, "INAM", "Pioneer");
+                    AddInfoSubChunk(body, "IART", "Lerk");
+                    AddInfoSubChunk(body, "IPRD", "Spacewalk");
+                    AddInfoSubChunk(body, "IGNR", "Electronic");
+                    AddInfoSubChunk(body, "ICRD", "2018");
+
+                    var list = new List<byte>();
+                    list.AddRange(Encoding.ASCII.GetBytes("INFO"));
+                    list.AddRange(body);
+
+                    var tags = Read(WriteWav(list, null));
+
+                    Equal("Pioneer", tags.Title, "wav INAM");
+                    Equal("Lerk", tags.Artist, "wav IART");
+                    Equal("Spacewalk", tags.Album, "wav IPRD");
+                    Equal("Electronic", tags.Genre, "wav IGNR");
+                }
+
+                /// <summary>
+                /// A wave file carrying a normal ID3v2 tag in an "ID3 " chunk after the audio,
+                /// which is what most soundtrack rips look like.
+                /// </summary>
+                private static void WavEmbeddedId3Chunk()
+                {
+                    var frames = new List<byte>();
+                    AddFrame(frames, "TIT2", Utf16("Pioneer"));
+                    AddFrame(frames, "TPE1", Utf16("Lerk"));
+                    AddFrame(frames, "TALB", Utf16("Spacewalk"));
+
+                    var id3 = new List<byte>();
+                    id3.AddRange(Encoding.ASCII.GetBytes("ID3"));
+                    id3.AddRange(new byte[] { 3, 0, 0 });
+                    id3.AddRange(SyncSafe(frames.Count));
+                    id3.AddRange(frames);
+
+                    var tags = Read(WriteWav(null, id3));
+
+                    Equal("Pioneer", tags.Title, "wav ID3 chunk TIT2");
+                    Equal("Lerk", tags.Artist, "wav ID3 chunk TPE1");
+                    Equal("Spacewalk", tags.Album, "wav ID3 chunk TALB");
+                }
+
+                private static void AddInfoSubChunk(List<byte> body, string id, string value)
+                {
+                    // Values are NUL terminated and padded to an even length.
+                    var bytes = new List<byte>(Encoding.GetEncoding(28591).GetBytes(value));
+                    bytes.Add(0);
+                    if (bytes.Count % 2 != 0)
+                    {
+                        bytes.Add(0);
+                    }
+
+                    body.AddRange(Encoding.ASCII.GetBytes(id));
+                    body.AddRange(new byte[] { (byte)(bytes.Count & 0xFF), (byte)(bytes.Count >> 8), 0, 0 });
+                    body.AddRange(bytes);
+                }
+
+                /// <summary>Builds a small fake wave file with the given chunks after the audio.</summary>
+                private static string WriteWav(List<byte> listBody, List<byte> id3Body)
+                {
+                    var chunks = new List<byte>();
+
+                    chunks.AddRange(Encoding.ASCII.GetBytes("fmt "));
+                    chunks.AddRange(new byte[] { 16, 0, 0, 0 });
+                    chunks.AddRange(new byte[16]);
+
+                    chunks.AddRange(Encoding.ASCII.GetBytes("data"));
+                    chunks.AddRange(new byte[] { 8, 0, 0, 0 });
+                    chunks.AddRange(new byte[8]);
+
+                    if (listBody != null)
+                    {
+                        chunks.AddRange(Encoding.ASCII.GetBytes("LIST"));
+                        chunks.AddRange(LittleEndianInt32(listBody.Count));
+                        chunks.AddRange(listBody);
+                    }
+
+                    if (id3Body != null)
+                    {
+                        chunks.AddRange(Encoding.ASCII.GetBytes("ID3 "));
+                        chunks.AddRange(LittleEndianInt32(id3Body.Count));
+                        chunks.AddRange(id3Body);
+                    }
+
+                    var file = Path.Combine(Path.GetTempPath(), "rpmp-test-" + Guid.NewGuid().ToString("N") + ".wav");
+
+                    var contents = new List<byte>();
+                    contents.AddRange(Encoding.ASCII.GetBytes("RIFF"));
+                    contents.AddRange(LittleEndianInt32(4 + chunks.Count));
+                    contents.AddRange(Encoding.ASCII.GetBytes("WAVE"));
+                    contents.AddRange(chunks);
+
+                    File.WriteAllBytes(file, contents.ToArray());
+                    TempFiles.Add(file);
+                    return file;
+                }
+
+                private static byte[] LittleEndianInt32(int value)
+                {
+                    return new[]
+                    {
+                        (byte)(value & 0xFF),
+                        (byte)((value >> 8) & 0xFF),
+                        (byte)((value >> 16) & 0xFF),
+                        (byte)((value >> 24) & 0xFF)
+                    };
+                }
+
+                /// <summary>
+                        /// An ogg Vorbis file: the tags live in the second packet of the audio stream,
+                        /// which comes after a different stream's packets.
+                        /// </summary>
+                        private static void OggVorbisComments()
+                        {
+                            var file = Path.Combine(Path.GetTempPath(), "rpmp-test-" + Guid.NewGuid().ToString("N") + ".ogg");
+
+                            var comments = new List<string> { "encoder=Something", "album=Formation", "artist=Lerk", "genre=Techno", "title=Formation" };
+                            var commentPacket = BuildVorbisCommentPacket(comments);
+
+                            var identPacket = new byte[30];
+                            identPacket[0] = 0x01;
+                            Encoding.ASCII.GetBytes("vorbis").CopyTo(identPacket, 1);
+
+                            var pages = new List<byte>();
+                            AddOggPage(pages, 1, 0x02, 0xAA, identPacket);
+                            AddOggPage(pages, 1, 0x02, 0xBB, Encoding.ASCII.GetBytes("\x81theora"));
+                            AddOggPage(pages, 2, 0x00, 0xBB, new byte[] { (byte)'\x83', (byte)'t', (byte)'h', (byte)'e', (byte)'o', (byte)'r', (byte)'a' });
+                            AddOggPage(pages, 2, 0x00, 0xAA, commentPacket);
+
+                            File.WriteAllBytes(file, pages.ToArray());
+                            TempFiles.Add(file);
+
+                            var tags = Read(file);
+
+                            Equal("Formation", tags.Title, "ogg TITLE");
+                            Equal("Lerk", tags.Artist, "ogg ARTIST");
+                            Equal("Formation", tags.Album, "ogg ALBUM");
+                            Equal("Techno", tags.Genre, "ogg GENRE");
+                        }
+
+                        private static void FlacVorbisComments()
+                        {
+                            var file = Path.Combine(Path.GetTempPath(), "rpmp-test-" + Guid.NewGuid().ToString("N") + ".flac");
+
+                            var block = BuildVorbisCommentBody(new List<string>
+                            {
+                                "album=Formation", "artist=Lerk", "title=Formation", "genre=Techno"
+                            });
+
+                            var blockSize = block.Length;
+
+                            var contents = new List<byte>();
+                            contents.AddRange(Encoding.ASCII.GetBytes("fLaC"));
+
+                            // A metadata block header: last block flag, type 4 (vorbis comment), 24 bit size.
+                            contents.Add(0x80 | 4);
+                            contents.Add((byte)((blockSize >> 16) & 0xFF));
+                            contents.Add((byte)((blockSize >> 8) & 0xFF));
+                            contents.Add((byte)(blockSize & 0xFF));
+                            contents.AddRange(block);
+
+                            File.WriteAllBytes(file, contents.ToArray());
+                            TempFiles.Add(file);
+
+                            var tags = Read(file);
+
+                            Equal("Formation", tags.Title, "flac TITLE");
+                            Equal("Lerk", tags.Artist, "flac ARTIST");
+                            Equal("Formation", tags.Album, "flac ALBUM");
+                            Equal("Techno", tags.Genre, "flac GENRE");
+                        }
+
+                        /// <summary>A "\x03vorbis" packet wrapping a comment block.</summary>
+                        private static byte[] BuildVorbisCommentPacket(List<string> comments)
+                        {
+                            var packet = new List<byte> { 0x03 };
+                            packet.AddRange(Encoding.ASCII.GetBytes("vorbis"));
+                            packet.AddRange(BuildVorbisCommentBody(comments));
+                            return packet.ToArray();
+                        }
+
+                        /// <summary>A vorbis comment block: vendor string, count, then length prefixed comments.</summary>
+                        private static byte[] BuildVorbisCommentBody(List<string> comments)
+                        {
+                            var body = new List<byte>();
+
+                            var vendor = Encoding.ASCII.GetBytes("test");
+                            body.AddRange(LittleEndianInt32(vendor.Length));
+                            body.AddRange(vendor);
+
+                            body.AddRange(LittleEndianInt32(comments.Count));
+                            foreach (var comment in comments)
+                            {
+                                var bytes = Encoding.UTF8.GetBytes(comment);
+                                body.AddRange(LittleEndianInt32(bytes.Length));
+                                body.AddRange(bytes);
+                            }
+
+                            return body.ToArray();
+                        }
+
+                        /// <summary>
+                        /// Writes one ogg page. A packet is split into 255 byte segments plus a remainder,
+                        /// which is how real files encode anything longer than 255 bytes.
+                        /// </summary>
+                        private static void AddOggPage(List<byte> target, int sequence, int headerType, uint serial, byte[] packet)
+                        {
+                            var segments = new List<byte>();
+                            int remaining = packet.Length;
+                            int offset = 0;
+
+                            while (remaining >= 255)
+                            {
+                                segments.Add(255);
+                                offset += 255;
+                                remaining -= 255;
+                            }
+                            segments.Add((byte)remaining);
+
+                            target.AddRange(Encoding.ASCII.GetBytes("OggS"));
+                            target.Add(0);                        // version
+                            target.Add((byte)headerType);
+                            target.AddRange(new byte[8]);         // granule position
+                            target.AddRange(LittleEndianInt32((int)serial));
+                            target.AddRange(LittleEndianInt32(sequence));
+                            target.AddRange(new byte[4]);         // checksum, not validated by the reader
+                            target.Add((byte)segments.Count);
+                            target.AddRange(segments);
+                            target.AddRange(packet);
+                        }
+
+                        /// <summary>
+            /// Writes one ogg page from an explicit lacing table, for packets that span
+            /// pages: a segment of exactly 255 bytes leaves the packet open and it only
+            /// ends on a later page.
+            /// </summary>
+            private static void AddRawOggPage(List<byte> target, int sequence, int headerType, uint serial, byte[] lacing, byte[] body)
+            {
+                target.AddRange(Encoding.ASCII.GetBytes("OggS"));
+                target.Add(0);                        // version
+                target.Add((byte)headerType);
+                target.AddRange(new byte[8]);         // granule position
+                target.AddRange(LittleEndianInt32((int)serial));
+                target.AddRange(LittleEndianInt32(sequence));
+                target.AddRange(new byte[4]);         // checksum, not validated by the reader
+                target.Add((byte)lacing.Length);
+                target.AddRange(lacing);
+                target.AddRange(body);
+            }
+
+            /// <summary>
+            /// An ogg whose comment packet is split over two pages: the first page's only
+            /// segment is a full 255 bytes, so the packet only ends on the next page. Real
+            /// encoders write long comment packets (cover art) exactly this way, and the
+            /// reassembled packet must not be mistaken for a video stream's header.
+            /// </summary>
+            private static void OggPacketAcrossPages()
+            {
+                var file = Path.Combine(Path.GetTempPath(), "rpmp-test-" + Guid.NewGuid().ToString("N") + ".ogg");
+
+                var identPacket = new byte[30];
+                identPacket[0] = 0x01;
+                Encoding.ASCII.GetBytes("vorbis").CopyTo(identPacket, 1);
+
+                var commentPacket = BuildVorbisCommentPacket(new List<string>
+                {
+                    "album=Across Pages", "artist=Lerk", "title=Across Pages",
+
+                    // Long enough to span pages, the way a comment packet with cover
+                    // art in it does.
+                    "padding=" + new string('x', 400)
+                });
+
+                var pages = new List<byte>();
+                AddOggPage(pages, 1, 0x02, 0xAA, identPacket);
+
+                var first = new byte[255];
+                Array.Copy(commentPacket, 0, first, 0, 255);
+                AddRawOggPage(pages, 2, 0x00, 0xAA, new byte[] { 255 }, first);
+
+                var rest = new byte[commentPacket.Length - 255];
+                Array.Copy(commentPacket, 255, rest, 0, rest.Length);
+                AddRawOggPage(pages, 3, 0x00, 0xAA, new[] { (byte)rest.Length }, rest);
+
+                File.WriteAllBytes(file, pages.ToArray());
+                TempFiles.Add(file);
+
+                var tags = Read(file);
+
+                Equal("Across Pages", tags.Title, "ogg packet across pages: TITLE");
+                Equal("Lerk", tags.Artist, "ogg packet across pages: ARTIST");
+                Equal("Across Pages", tags.Album, "ogg packet across pages: ALBUM");
+                False(tags.HasVideoStream, "ogg packet across pages: not flagged as video");
+            }
+
+        /// <summary>
+        /// An ogg that also holds a Theora video stream, which is the case the audio
+        /// engine may refuse to turn into audio. The reader has to notice and say so.
+        /// </summary>
+        private static void OggWithVideoStream()
+        {
+            var file = Path.Combine(Path.GetTempPath(), "rpmp-test-" + Guid.NewGuid().ToString("N") + ".ogg");
+
+            var identPacket = new byte[30];
+            identPacket[0] = 0x01;
+            Encoding.ASCII.GetBytes("vorbis").CopyTo(identPacket, 1);
+
+            var pages = new List<byte>();
+            AddOggPage(pages, 1, 0x02, 0xCC, new byte[] { (byte)'\x80', (byte)'t', (byte)'h', (byte)'e', (byte)'o', (byte)'r', (byte)'a' });
+            AddOggPage(pages, 1, 0x02, 0xAA, identPacket);
+            AddOggPage(pages, 2, 0x00, 0xAA, BuildVorbisCommentPacket(new List<string> { "title=Formation", "artist=Lerk" }));
+
+            File.WriteAllBytes(file, pages.ToArray());
+            TempFiles.Add(file);
+
+            var tags = Read(file);
+
+            Equal("Formation", tags.Title, "ogg with video: title still read");
+            True(tags.HasVideoStream, "ogg with video: flagged as carrying a video stream");
+        }
+
+        private static void True(bool value, string what)
+        {
+            checks++;
+            if (value)
+            {
+                Console.WriteLine("  ok    " + what);
+                return;
+            }
+            Fail(what + ": expected true but got false");
+        }
+
+        private static void False(bool value, string what)
+        {
+            True(!value, what);
         }
 
         private static void Durations()

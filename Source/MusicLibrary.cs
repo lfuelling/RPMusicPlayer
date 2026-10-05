@@ -57,7 +57,17 @@ namespace RPMusicPlayer
                 try
                 {
                     var tags = TagReader.Read(file);
-                    tracks.Add(new MusicTrack(file, tags));
+                    var track = new MusicTrack(file, tags);
+
+                    if (tags.HasVideoStream)
+                    {
+                        track.Warning = "video stream";
+                        Log.Warning("'{0}' holds a video stream as well as audio. The audio engine may " +
+                            "or may not decode one of these; the track can still be selected, and if " +
+                            "loading fails, that is reported in the log.", track.FileName);
+                    }
+
+                    tracks.Add(track);
                 }
                 catch (Exception e)
                 {

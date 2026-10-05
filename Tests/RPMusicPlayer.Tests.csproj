@@ -18,6 +18,7 @@
 
   <ItemGroup>
     <Compile Include="Program.cs" />
+    <Compile Include="Inspect.cs" />
     <Compile Include="Stubs.cs" />
     <Compile Include="..\Source\TagReader.cs" />
     <Compile Include="..\Source\MusicTrack.cs" />

@@ -21,9 +21,15 @@ namespace RPMusicPlayer
                 if (monitor == null && internalProp != null)
                 {
                     monitor = internalProp.FindModelComponent<RasterPropMonitor>();
-                    buttons = monitor == null
-                        ? null
-                        : new ButtonMap(ButtonMap.Split(monitor.globalButtons));
+                    if (monitor != null)
+                    {
+                        buttons = new ButtonMap(ButtonMap.Split(monitor.globalButtons));
+
+                        // Some pods name their page switching buttons after their
+                        // position on the panel, so the pod's own page settings are the
+                        // only thing that can say which buttons they are.
+                        PageInjector.BindPageSwitchButtons(monitor, buttons);
+                    }
                 }
                 return monitor;
             }
@@ -133,12 +139,26 @@ namespace RPMusicPlayer
         /// </summary>
         public void ClickProcessor(int buttonID)
         {
+            var map = Buttons;
+
+            // The next and previous buttons are the way between the two pages,
+            // whichever one is showing, so they are handled here rather than in
+            // the pages themselves.
+            if (Matches(map, MonitorButton.Next, buttonID) || Matches(map, MonitorButton.Prev, buttonID))
+            {
+                SwitchView();
+                return;
+            }
+
             OnButtonPressed(buttonID);
         }
 
         protected virtual void OnButtonPressed(int buttonID)
         {
         }
+
+        /// <summary>Switches to the other one of the two music pages.</summary>
+        protected abstract void SwitchView();
 
         protected bool Matches(ButtonMap map, MonitorButton action, int buttonID)
         {
@@ -160,48 +180,6 @@ namespace RPMusicPlayer
         protected void LeavePages()
         {
             PageInjector.SwitchTo(Monitor, PageInjector.FindExitPage(Monitor));
-        }
-
-        /// <summary>
-        /// A one line reminder of which physical button does what, built from the
-        /// monitor's own button names so it is correct for every pod.
-        /// </summary>
-        protected string BuildLegend()
-        {
-            var map = Buttons;
-            if (map == null)
-            {
-                return string.Empty;
-            }
-
-            var parts = new System.Collections.Generic.List<string>();
-
-            AppendLegend(parts, map, MonitorButton.Up);
-            AppendLegend(parts, map, MonitorButton.Down);
-            AppendLegend(parts, map, MonitorButton.Select);
-            AppendLegend(parts, map, MonitorButton.Back);
-
-            return parts.Count == 0 ? string.Empty : string.Join("  ", parts.ToArray());
-        }
-
-        private static void AppendLegend(System.Collections.Generic.List<string> parts, ButtonMap map, MonitorButton action)
-        {
-            var label = map.LabelFor(action);
-            if (!string.IsNullOrEmpty(label))
-            {
-                parts.Add(Simplify(label));
-            }
-        }
-
-        /// <summary>"button_UP" reads better on a small screen as just "UP".</summary>
-        internal static string Simplify(string buttonName)
-        {
-            var name = buttonName;
-            if (name.StartsWith("button", System.StringComparison.OrdinalIgnoreCase))
-            {
-                name = name.Substring("button".Length);
-            }
-            return name.Length == 0 ? buttonName : name;
         }
 
         protected static string ColorTag(Color color)

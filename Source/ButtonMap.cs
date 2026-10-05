@@ -10,6 +10,8 @@ namespace RPMusicPlayer
         Down,
         Left,
         Right,
+        Next,
+        Prev,
         Select,
         Back
     }
@@ -21,6 +23,11 @@ namespace RPMusicPlayer
     /// (button_UP, button_DOWN, button_ENTER, ...) but not all of them, so the button
     /// name is matched against a set of patterns. Anything the player has an opinion
     /// about can be pinned down in the configuration file instead.
+    ///
+    /// Left and right never move between the pages: they only change the value of
+    /// the selected row when it has one. The next and previous buttons are the way
+    /// between the two pages, so they get their own actions rather than standing in
+    /// for left and right on monitors that have both sets of buttons.
     /// </summary>
     public sealed class ButtonMap
     {
@@ -28,14 +35,22 @@ namespace RPMusicPlayer
         {
             { MonitorButton.Up, new[] { "UP" } },
             { MonitorButton.Down, new[] { "DOWN" } },
-            { MonitorButton.Left, new[] { "LEFT", "PREV", "BACKWARD" } },
-            { MonitorButton.Right, new[] { "RIGHT", "NEXT", "FORWARD" } },
+            { MonitorButton.Left, new[] { "LEFT" } },
+            { MonitorButton.Right, new[] { "RIGHT" } },
+            { MonitorButton.Prev, new[] { "PREV", "BACKWARD" } },
+            { MonitorButton.Next, new[] { "NEXT", "FORWARD" } },
             { MonitorButton.Select, new[] { "ENTER", "SELECT", "FIRE", "OK", "EXEC" } },
             { MonitorButton.Back, new[] { "ESC", "BACK", "CANCEL", "MENU", "HOME", "EXIT" } }
         };
 
         private readonly Dictionary<MonitorButton, int> ids = new Dictionary<MonitorButton, int>();
         private readonly List<string> globalButtons = new List<string>();
+
+        /// <summary>How many global buttons the monitor has, to sanity check configured ids.</summary>
+        internal int GlobalButtonCount
+        {
+            get { return globalButtons.Count; }
+        }
 
         internal ButtonMap(IEnumerable<string> configuredGlobalButtons)
         {
@@ -58,7 +73,9 @@ namespace RPMusicPlayer
 
         private void BuildDefaults()
         {
-            foreach (var action in new[] { MonitorButton.Up, MonitorButton.Down, MonitorButton.Left, MonitorButton.Right, MonitorButton.Select, MonitorButton.Back })
+            // Prev and Next must be matched before Back, because a button called
+            // "BACKWARD" would otherwise be claimed by Back's "BACK" pattern.
+            foreach (var action in new[] { MonitorButton.Up, MonitorButton.Down, MonitorButton.Left, MonitorButton.Right, MonitorButton.Prev, MonitorButton.Next, MonitorButton.Select, MonitorButton.Back })
             {
                 var id = MatchPatterns(Patterns[action]);
                 if (id >= 0)
@@ -130,6 +147,12 @@ namespace RPMusicPlayer
         internal string LabelFor(MonitorButton action, string fallback)
         {
             return LabelFor(action) ?? fallback;
+        }
+
+        /// <summary>The monitor's own name for a global button id, or null.</summary>
+        internal string NameOf(int id)
+        {
+            return id >= 0 && id < globalButtons.Count ? globalButtons[id] : null;
         }
 
         /// <summary>Pins an action to a named global button, e.g. from the configuration file.</summary>

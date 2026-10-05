@@ -120,9 +120,23 @@ namespace RPMusicPlayer
         {
             var url = ToFileUrl(track.Path);
             var audioType = AudioTypeFor(track.Extension);
+            var stream = ShouldStream(track);
+
+            Log.Info("Loading '{0}' ({1:F1} MB, {2}).", track.FileName, SizeInMegabytes(track), stream ? "streaming" : "into memory");
 
             using (var request = UnityWebRequestMultimedia.GetAudioClip(url, audioType))
             {
+                // This Unity build has no streaming overload of GetAudioClip, but the
+                // download handler exposes the flag and it has to be set before sending.
+                if (stream)
+                {
+                    var handler = request.downloadHandler as DownloadHandlerAudioClip;
+                    if (handler != null)
+                    {
+                        handler.streamAudio = true;
+                    }
+                }
+
                 yield return request.SendWebRequest();
 
                 AudioClip clip = null;
@@ -133,6 +147,19 @@ namespace RPMusicPlayer
                 else
                 {
                     clip = DownloadHandlerAudioClip.GetContent(request);
+
+                    // Unity reports success for files it cannot actually turn into audio,
+                    // handing back an empty clip. Treating that as a playable track makes
+                    // the queue jump straight to the next song.
+                    if (clip != null && !IsUsable(clip))
+                    {
+                        Log.Error("'{0}' could not be turned into audio: {1}. " +
+                            "Unity cannot decode every container; ogg files that also carry a " +
+                            "video stream (Ogg Theora) are the usual cause, so try a plain " +
+                            "audio only ogg.", track.FileName, Describe(clip));
+                        Destroy(clip);
+                        clip = null;
+                    }
                 }
 
                 // The user may have skipped on while this was loading.
@@ -163,9 +190,25 @@ namespace RPMusicPlayer
 
                 source.clip = clip;
                 RefreshVolume();
-                source.time = Mathf.Clamp((float)startAt, 0f, Mathf.Max(0f, clip.length - 0.05f));
+
+                // Only seek when resuming part way in. Setting time to zero is still a
+                // seek, and asking a clip that cannot be seeked to do one makes FMOD
+                // refuse to create a sound for it at all, which is silent failure for
+                // some compressed formats.
+                if (startAt > 0.01)
+                {
+                    Seek(source, clip, startAt);
+                }
                 source.Play();
                 IsPlaying = true;
+
+                Log.Info("Loaded '{0}': {1}s, {2} channel(s), {3} Hz, load type {4}, state {5}.",
+                    track.FileName,
+                    clip.length.ToString("F1"),
+                    clip.channels,
+                    clip.frequency,
+                    clip.loadType,
+                    clip.loadState);
 
                 var loaded = TrackLoaded;
                 if (loaded != null)
@@ -175,6 +218,81 @@ namespace RPMusicPlayer
             }
 
             IsLoading = false;
+        }
+
+        /// <summary>
+        /// A clip Unity reports as loaded but which has no audio in it. Seeking one of
+        /// these throws, and playing one finishes immediately.
+        /// </summary>
+        private static bool IsUsable(AudioClip clip)
+        {
+            return clip != null
+                && clip.channels > 0
+                && clip.frequency > 0
+                && clip.length > 0f
+                && clip.loadState != AudioDataLoadState.Unloaded;
+        }
+
+        private static string Describe(AudioClip clip)
+        {
+            return string.Format(
+                "{0:F1}s, {1} channel(s), {2} Hz, load type {3}, state {4}",
+                clip.length, clip.channels, clip.frequency, clip.loadType, clip.loadState);
+        }
+
+        /// <summary>
+        /// Big files are streamed from disk rather than decompressed into memory: a
+        /// long wave file can decode to several hundred megabytes, and only one clip
+        /// is held at a time, so the whole library never has to fit in RAM but a single
+        /// track still has to. Streaming keeps the footprint small at the cost of not
+        /// being able to resume from a position.
+        /// </summary>
+        private static bool ShouldStream(MusicTrack track)
+        {
+            var threshold = Settings.Current.StreamAboveMegabytes;
+            if (threshold < 0)
+            {
+                return true;
+            }
+            if (threshold == 0)
+            {
+                return false;
+            }
+
+            return SizeInMegabytes(track) > threshold;
+        }
+
+        private static double SizeInMegabytes(MusicTrack track)
+        {
+            try
+            {
+                var info = new FileInfo(track.Path);
+                return info.Length / (1024.0 * 1024.0);
+            }
+            catch (Exception)
+            {
+                return 0;
+            }
+        }
+
+        /// <summary>
+        /// Moves the playhead, tolerating formats that cannot be seeked rather than
+        /// letting the exception escape into the audio thread.
+        /// </summary>
+        private static void Seek(AudioSource audio, AudioClip clip, double position)
+        {
+            var target = Mathf.Clamp((float)position, 0f, Mathf.Max(0f, clip.length - 0.05f));
+
+            try
+            {
+                audio.time = target;
+            }
+            catch (Exception e)
+            {
+                Log.Info("Could not seek '{0}' to {1:F1}s, starting from the beginning. {2}",
+                    clip.name, target, e.Message);
+                audio.time = 0f;
+            }
         }
 
         /// <summary>Pauses playback but keeps the current position.</summary>

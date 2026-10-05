@@ -84,15 +84,13 @@ namespace RPMusicPlayer
                 return 0;
             }
 
-            Log.Info("Found {0} RasterPropMonitor(s) in internal model '{1}'.",
-                monitors.Length, model.internalName);
-
             var patched = 0;
             foreach (var monitor in monitors)
             {
                 if (Inject(monitor))
                 {
                     patched++;
+                    Log.Info("Found a RasterPropMonitor in internal model '{0}'.", model.internalName);
                 }
             }
 
@@ -360,6 +358,74 @@ namespace RPMusicPlayer
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Binds the next and prev actions to the global buttons the pod's own pages
+        /// switch pages with.
+        ///
+        /// Some pods name those buttons after their position on the panel ("buttonR9")
+        /// rather than after what they do, so no name pattern can find them. But RPM
+        /// pages can say which global buttons cycle them with the buttonNextPatch and
+        /// buttonPrevPatch settings, and the pod's own declaration is authoritative
+        /// wherever it is present. The values are global button ids, exactly what the
+        /// button map is built out of.
+        /// </summary>
+        internal static void BindPageSwitchButtons(RasterPropMonitor monitor, ButtonMap buttons)
+        {
+            if (monitor == null || buttons == null)
+            {
+                return;
+            }
+
+            var node = MonitorConfigNode(monitor);
+            if (node == null)
+            {
+                return;
+            }
+
+            var next = FindPatchButton(node, "buttonNextPatch", buttons);
+            var prev = FindPatchButton(node, "buttonPrevPatch", buttons);
+
+            if (next >= 0)
+            {
+                buttons.Set(MonitorButton.Next, next);
+                Log.Info("Next button is '{0}' by the pod's own page settings.",
+                    Label(buttons, next));
+            }
+
+            if (prev >= 0)
+            {
+                buttons.Set(MonitorButton.Prev, prev);
+                Log.Info("Prev button is '{0}' by the pod's own page settings.",
+                    Label(buttons, prev));
+            }
+        }
+
+        /// <summary>
+        /// The first valid buttonNextPatch/buttonPrevPatch value across the pod's
+        /// pages, or -1 when no page declares one.
+        /// </summary>
+        private static int FindPatchButton(ConfigNode node, string valueName, ButtonMap buttons)
+        {
+            foreach (var page in node.GetNodes("PAGE"))
+            {
+                int id;
+                if (page.HasValue(valueName)
+                    && int.TryParse(page.GetValue(valueName), out id)
+                    && id >= 0 && id < buttons.GlobalButtonCount)
+                {
+                    return id;
+                }
+            }
+
+            return -1;
+        }
+
+        private static string Label(ButtonMap buttons, int id)
+        {
+            var name = buttons.NameOf(id);
+            return string.IsNullOrEmpty(name) ? id.ToString() : name;
         }
 
         /// <summary>The monitor's pages and the button each one is bound to.</summary>

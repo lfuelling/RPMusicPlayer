@@ -39,6 +39,9 @@ namespace RPMusicPlayer
         /// <summary>Scan sub folders of the music folder as well.</summary>
         internal bool ScanSubFolders = true;
 
+                /// <summary>Scan the music folder when the game starts.</summary>
+                internal bool ScanOnStart = true;
+
         /// <summary>Lower case file extensions that are considered playable, without the dot.</summary>
         internal readonly List<string> Extensions = new List<string>();
 
@@ -55,12 +58,26 @@ namespace RPMusicPlayer
         /// </summary>
         internal string EntryPage = string.Empty;
 
-        /// <summary>Scan the music folder when the game starts.</summary>
-        internal bool ScanOnStart = true;
+        /// <summary>
+        /// Files larger than this are streamed from disk instead of being decoded into
+        /// memory. Zero disables streaming, a negative value streams everything.
+        /// </summary>
+        internal int StreamAboveMegabytes = 24;
+
+        /// <summary>
+        /// Also pause when the player leaves the cockpit, not just when the vessel or
+        /// scene changes. Off by default: stepping out to the chase camera is not the
+        /// same as the kerbals being outside, and music is meant to keep playing.
+        /// </summary>
+        internal bool PauseWhenOutsideIva;
 
         private Settings()
         {
-            Extensions.AddRange(new[] { "mp3", "ogg", "wav", "aiff", "aif", "m4a", "mp4", "flac" });
+            // Wave is the only format the game's audio engine is verified to decode.
+            // Others can be added with EXTENSIONS, but they are not guaranteed: a
+            // format the engine refuses loads as an empty clip, which shows up as a
+            // track that stops instead of playing.
+            Extensions.AddRange(new[] { "wav" });
         }
 
         private void Load()
@@ -84,8 +101,16 @@ namespace RPMusicPlayer
             Volume = Mathf.Clamp01(ReadFloat(node, "VOLUME", Volume));
             ScanSubFolders = ReadBool(node, "SCANSUBFOLDERS", ScanSubFolders);
             ScanOnStart = ReadBool(node, "SCANONSTART", ScanOnStart);
+            PauseWhenOutsideIva = ReadBool(node, "PAUSEWHENOUTSIDEIVA", PauseWhenOutsideIva);
             EntryButton = ReadString(node, "ENTRYBUTTON", "auto").Trim();
-                        EntryPage = ReadString(node, "ENTRYPAGE", string.Empty).Trim();
+            EntryPage = ReadString(node, "ENTRYPAGE", string.Empty).Trim();
+
+            int streamAbove;
+            if (node != null && node.HasValue("STREAMABOVE")
+                && int.TryParse(node.GetValue("STREAMABOVE"), out streamAbove))
+            {
+                StreamAboveMegabytes = streamAbove;
+            }
 
             var extensions = ReadString(node, "EXTENSIONS", string.Empty);
             if (!string.IsNullOrEmpty(extensions))

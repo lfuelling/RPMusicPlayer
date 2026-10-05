@@ -4,16 +4,17 @@ A music player for [RasterPropMonitor](https://github.com/FirstPersonKSP/RasterP
 
 ## What it does
 
-- Reads your music from a folder you choose and shows it on the pod's RasterPropMonitor screens.
+- Reads your music from a folder you can choose and shows it on the RasterPropMonitor screens.
 - The browser lists every song, sorted and filtered by ID3 tags (artist, album, genre, title) or file name.
 - Picking a song starts it, with the rest of the current view queued up behind it.
-- A player page shows the track's details, position and the transport controls.
+- A player page shows the track details, position and the transport controls.
 - Each vessel keeps its own queue, volume and browsing settings.
-- Music pauses when you switch vessel, go to the space centre or a tracking station, or step outside the pod. Coming back from an EVA leaves it paused until you press play.
+- Music pauses when you switch vessel or go to the space centre or a tracking station, and picks
+  back up where it left off when you return. It keeps playing when you step out of the cockpit to
+  look at your ship.
 
-Everything is driven by the monitor's own buttons: up, down, left, right, select and back. The
-on-screen legend is generated from whatever buttons your IVA actually has, so it reads correctly
-on every cockpit without configuration.
+Everything is controlled by the screen buttons: up, down, left, right, next, prev, select and
+back.
 
 ## Requirements
 
@@ -39,24 +40,32 @@ GameData/RPMusicPlayer/
 └── Music/            <- put your music here
 ```
 
-Supported formats are mp3, ogg, wav, aiff, m4a and flac. Sub folders are scanned too.
+The library scans wav files: wave is the only format the game's audio engine is verified to decode.
+Sub folders are scanned too. Other formats can be added with `EXTENSIONS`, but they are not
+guaranteed — an ogg the engine refuses (one carrying a video stream, for example) is listed with a
+`(video stream)` warning, and selecting it logs why it will not play and stops without breaking
+anything.
 
 ## Using it
 
 1. Open a pod that has a RasterPropMonitor screen and go into IVA.
-2. Press the entry button to open the music library. By default the plugin adds its pages to a
-   button that currently drives a single screen, so the music player is the second mode on it:
-   press that button a second time to reach it. Point `ENTRYPAGE` at a page name to choose which
-   one, `ENTRYBUTTON` at a button name, or use `screen` to click the screen itself.
-3. Up and down move through the list, select plays a song, left and right change the sort order,
-   and back leaves the music pages and returns you to the pod's own screen.
+2. Press DATA to open the music library. The plugin's pages are bound to that button,
+   so pressing it again returns to the library.
+3. Up and down move the cursor, select activates the highlighted row.
+4. Choosing a song starts it and switches to the Now Playing view.
+5. The next and previous buttons move between the two views from either one.
+6. Back leaves the music pages and returns you to the pod's own screen.
 
 | Button | Library | Player |
 | --- | --- | --- |
 | Up / Down | Move the cursor | Move the cursor |
-| Select | Play the selected song | Activate the highlighted control |
-| Left / Right | Change sort field / direction | — |
+| Select | Activate the highlighted row | Activate the highlighted row |
+| Left / Right | Nothing to change here | Change the volume when the volume row is selected |
+| Next / Prev | Switch to Now Playing | Switch to the library |
 | Back | Back to the pod's screen | Back to the library |
+
+Sort field and direction, the filter and the rescan are all menu rows in the library, so they do
+not need the left and right buttons.
 
 The player controls are a selectable list, the same shape as the browser:
 
@@ -81,11 +90,21 @@ On/off settings are shown in green when active. Repeat cycles `off` → `ALL` �
 | --- | --- | --- |
 | `MUSICPATH` | `GameData/RPMusicPlayer/Music` | Folder to scan. Absolute, or relative to the KSP folder. |
 | `VOLUME` | `0.7` | Music volume, on top of KSP's master volume. |
+| `STREAMABOVE` | `24` | Stream files larger than this many MB instead of decoding them into RAM. `0` never streams, `-1` always does. |
 | `SCANSUBFOLDERS` | `true` | Scan sub folders as well. |
 | `SCANONSTART` | `true` | Scan at game start. Otherwise use *Rescan* in the browser. |
-| `EXTENSIONS` | `mp3,ogg,wav,aiff,aif,m4a,mp4,flac` | Which files count as playable. |
+| `PAUSEWHENOUTSIDEIVA` | `false` | Also pause when the player leaves the cockpit. See the EVA note. |
+| `EXTENSIONS` | `wav` | Which files count as playable. Wave is the only format the engine is verified to decode; others may load as empty clips. |
 | `ENTRYBUTTON` | `auto` | Which button opens the player. `auto`, `screen`, `none`, or a button name. |
 | `ENTRYPAGE` | `shipinfo` | Page name whose button should open the player, making it a second mode on that button. Overrides `ENTRYBUTTON`. On the stock MFD `shipinfo` is the button labelled DATA. |
+
+## Memory use
+
+Scanning the music folder only reads tag headers, so a library of any size costs a few MB of
+strings. Audio itself is decoded one track at a time, but a long wave file decodes to several
+times its own size, so files over `STREAMABOVE` megabytes are streamed from disk instead. A
+streamed track keeps memory flat but cannot be resumed from its position, so it restarts from the
+beginning.
 
 ## How it hooks into RasterPropMonitor
 
@@ -108,12 +127,19 @@ silently idle after leaving the main menu; the host keeps running in every scene
 a scene change and reattaching to monitors both work without depending on which scenes happen to
 have addons.
 
-## Notes on going EVA
+## Notes on EVA
 
-RasterPropMonitor only updates a screen while its crew are inside the pod, and while a kerbal is
-outside the vessel the pod's internal model is hidden and has nothing to click. The plugin
-therefore only looks for monitors while the player is inside a vessel, and pausing is driven off
-the same condition.
+Music does not pause for EVA. Kerbal Space Program 1.12 gives mods no way to tell "the kerbals are
+outside on an EVA" apart from "the player switched to the chase camera": there is no
+`FlightGlobals.ActiveCrewMember`, and `CameraManager.CameraMode` only has `Flight`, `Map`,
+`External`, `IVA` and `Internal`, so both situations report `Flight`. Rather than guess and get
+it wrong, stepping out of the cockpit does not pause anything.
+
+Setting `PAUSEWHENOUTSIDEIVA = true` restores the older behaviour of pausing whenever the player
+leaves the cockpit. That covers EVA, but it also pauses when you simply switch to the chase camera.
+
+The active vessel during an EVA is still the vessel the kerbal belongs to, not the kerbal, so the
+per vessel queue and playback position are unaffected by going outside.
 
 ## Development
 
@@ -121,6 +147,16 @@ the same condition.
 dotnet build                 # the plugin
 dotnet run --project Tests   # ID3 reader and formatting checks
 ```
+
+To see what the tag reader makes of a real music folder, outside the game:
+
+```powershell
+dotnet run --project Tests -- "C:\Games\KSP\GameData\RPMusicPlayer\Music"
+```
+
+Tags are read from ID3v1 and ID3v2.2/2.3/2.4 in mp3 style files, from the `LIST`/`INFO` and
+`ID3` chunks of wave files, and from the Vorbis comments of ogg (Vorbis and Opus) and flac
+files. Anything else falls back to the file name.
 
 The KSP folder is a property, so you can point the build anywhere:
 

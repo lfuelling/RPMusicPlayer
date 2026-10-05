@@ -160,23 +160,26 @@ namespace RPMusicPlayer
 
         private Guid lastVesselId = Guid.Empty;
 
+        /// <summary>Tracked separately from the page wiring's copy of the same idea.</summary>
+        private bool lastInsidePodForPause;
+
         private void UpdateContext()
         {
             var vessel = FlightContext.Vessel;
             var inFlight = FlightContext.HasActiveVessel;
-            var insidePod = inFlight && FlightContext.InsidePod;
             var vesselId = inFlight ? vessel.id : Guid.Empty;
 
-            if (vesselId == lastVesselId && insidePod == lastInsidePod)
+            var podChanged = Settings.Current.PauseWhenOutsideIva
+                && FlightContext.InsidePod != lastInsidePodForPause;
+            lastInsidePodForPause = FlightContext.InsidePod;
+
+            if (vesselId == lastVesselId && !podChanged)
             {
                 return;
             }
 
             var vesselChanged = vesselId != lastVesselId;
-            var podChanged = insidePod != lastInsidePod;
-
             lastVesselId = vesselId;
-            lastInsidePod = insidePod;
 
             if (vesselChanged)
             {
@@ -199,10 +202,10 @@ namespace RPMusicPlayer
                 }
             }
 
-            if (podChanged && !insidePod)
+            // Optional: treat stepping out of the cockpit as a pause too. This is the
+            // closest stand in for "the kerbals are outside", see the README.
+            if (podChanged && !FlightContext.InsidePod)
             {
-                // Going on EVA, or stepping out of the cockpit, pauses the music.
-                // Coming back from an EVA leaves it paused until play is pressed again.
                 SuspendCurrent(false);
                 if (CurrentState != null)
                 {

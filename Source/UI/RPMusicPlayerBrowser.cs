@@ -13,6 +13,13 @@ namespace RPMusicPlayer
     /// </summary>
     public class RPMusicPlayerBrowser : MusicPageHandler
     {
+        /// <summary>
+        /// Items that sit above the songs: a spacer and the header. Keeping the header
+        /// as an ordinary menu item is what lets it sit below the songs' own top line,
+        /// because TextMenu can only put a fixed title above the list.
+        /// </summary>
+        private const int LeadingItems = 2;
+
         private readonly TextMenu menu = new TextMenu();
         private List<MusicTrack> view = new List<MusicTrack>();
 
@@ -25,6 +32,9 @@ namespace RPMusicPlayer
             menu.selectedColor = ColorTag(Color.green);
             menu.disabledColor = ColorTag(Color.gray);
             menu.rightColumnWidth = 5;
+
+            // The header is a menu item now, so TextMenu must not write a title.
+            menu.menuTitle = string.Empty;
         }
 
         /// <summary>Draws the page. Called by RasterPropMonitor on every text refresh.</summary>
@@ -45,33 +55,21 @@ namespace RPMusicPlayer
                 ClearDirty();
             }
 
-            // One line for the legend and one blank line above it, plus the title that
-            // TextMenu writes itself.
-            var listHeight = Math.Max(4, height - 3);
-
-            var text = new StringBuilder();
-            text.Append(menu.ShowMenu(width, listHeight));
-
-            var legend = BuildLegend();
-            if (!string.IsNullOrEmpty(legend))
-            {
-                text.AppendLine();
-                text.Append(legend);
-            }
-
-            return text.ToString();
+            return menu.ShowMenu(width, Math.Max(4, height));
         }
 
         private void Rebuild(PlayerState state, PlayerManager player)
         {
             menu.Clear();
-            menu.menuTitle = "         == MUSIC LIBRARY ==";
 
             if (state == null)
             {
                 menu.Add(new TextMenu.Item("          Not flying a vessel.") { isDisabled = true });
                 return;
             }
+
+            menu.Add(new TextMenu.Item());
+            menu.Add(new TextMenu.Item("         == MUSIC LIBRARY =="));
 
             if (player.Library.IsScanning)
             {
@@ -101,13 +99,23 @@ namespace RPMusicPlayer
             for (int i = 0; i < view.Count; i++)
             {
                 var index = i;
-                menu.Add(new TextMenu.Item(view[i].ArtistAndTitle, OnPlay, index)
+                var track = view[i];
+                var item = new TextMenu.Item(track.ArtistAndTitle, OnPlay, index)
                 {
-                    rightText = view[i].DurationText
-                });
+                    rightText = track.DurationText
+                };
+
+                // A suspected undecodable track is still selectable: the suspicion is
+                // not certain, and a load that fails is handled at play time.
+                if (track.Warning != null)
+                {
+                    item.labelText = track.ArtistAndTitle + "  (" + track.Warning + ")";
+                }
+
+                menu.Add(item);
             }
 
-            menu.currentSelection = selection;
+            menu.currentSelection = selection + LeadingItems;
 
             AddControls(state, player);
         }
@@ -115,20 +123,24 @@ namespace RPMusicPlayer
         private void AddControls(PlayerState state, PlayerManager player)
         {
             menu.Add(new TextMenu.Item());
-            menu.Add(new TextMenu.Item(">> NOW PLAYING >>", OnNowPlaying, 0) { isDisabled = state.Current == null });
 
-            menu.Add(new TextMenu.Item());
             var sortLabel = state.SortField + (state.Descending ? " v" : " ^");
             menu.Add(new TextMenu.Item("Sort by: " + sortLabel, OnCycleSort, 0));
+            menu.Add(new TextMenu.Item("Order: " + (state.Descending ? "descending" : "ascending"), OnToggleDirection, 0));
 
             var filterLabel = string.IsNullOrEmpty(state.Filter) ? "none" : state.Filter;
             menu.Add(new TextMenu.Item("Filter: " + filterLabel, OnCycleFilter, 0)
             {
-                isDisabled = player.Library.Count < 20
+                isDisabled = player.Library.Count < 2
             });
 
             menu.Add(new TextMenu.Item());
             menu.Add(new TextMenu.Item("Rescan music folder", OnRescan, 0));
+        }
+
+        protected override void SwitchView()
+        {
+            GoToPlayerPage();
         }
 
         protected override void OnButtonPressed(int buttonID)
@@ -157,22 +169,21 @@ namespace RPMusicPlayer
             {
                 LeavePages();
             }
-            else if (Matches(map, MonitorButton.Left, buttonID))
-            {
-                CycleSort();
-            }
-            else if (Matches(map, MonitorButton.Right, buttonID))
-            {
-                ToggleDirection();
-            }
         }
 
         private void RememberSelection()
         {
             var state = State;
-            if (state != null && menu.currentSelection >= 0 && menu.currentSelection < view.Count)
+            if (state == null)
             {
-                state.BrowserSelection = menu.currentSelection;
+                return;
+            }
+
+            // The songs start after the now playing link and the header.
+            var songIndex = menu.currentSelection - LeadingItems;
+            if (songIndex >= 0 && songIndex < view.Count)
+            {
+                state.BrowserSelection = songIndex;
             }
         }
 
@@ -180,19 +191,34 @@ namespace RPMusicPlayer
         {
             var player = Player;
             var state = State;
-            if (player == null || state == null || index < 0 || index >= view.Count)
+            if (player == null || state == null)
             {
                 return;
             }
 
-            state.BrowserSelection = index;
-            player.PlayFromView(view, index);
+            var songIndex = index - LeadingItems;
+            if (songIndex < 0 || songIndex >= view.Count)
+            {
+                return;
+            }
+
+            state.BrowserSelection = songIndex;
+            player.PlayFromView(view, songIndex);
             MarkDirty();
+
+            // Picking a song takes you to the player; the next and previous buttons
+            // then move between the two views.
+            GoToPlayerPage();
         }
 
         private void OnNowPlaying(int index, TextMenu.Item item)
         {
             GoToPlayerPage();
+        }
+
+        private void OnToggleDirection(int index, TextMenu.Item item)
+        {
+            ToggleDirection();
         }
 
         private void OnCycleSort(int index, TextMenu.Item item)
@@ -238,31 +264,84 @@ namespace RPMusicPlayer
         private void OnCycleFilter(int index, TextMenu.Item item)
         {
             var state = State;
-            if (state == null)
+            var player = Player;
+            if (state == null || player == null)
             {
                 return;
             }
 
-            state.Filter = NextFilter(state.Filter);
+            state.Filter = NextFilter(state.Filter, player.Library);
             state.BrowserSelection = 0;
             MarkDirty();
         }
 
         /// <summary>
-        /// Cycles through a few one letter starters, which is enough to narrow a large
-        /// library down without needing a text entry field on a monitor.
+        /// Steps through the starting letters actually present in the library rather
+        /// than a fixed list, so the filter is useful for any collection. A one letter
+        /// filter matches the sort field the list is using, which is what a player
+        /// expects from it.
         /// </summary>
-        private static string NextFilter(string current)
+        private static string NextFilter(string current, MusicLibrary library)
         {
-            var filters = new[] { string.Empty, "a", "e", "i", "o", "u" };
-            for (int i = 0; i < filters.Length; i++)
+            var options = FilterOptions(library);
+            if (options.Count == 0)
             {
-                if (filters[i] == current)
+                return string.Empty;
+            }
+
+            for (int i = 0; i < options.Count; i++)
+            {
+                if (string.Equals(options[i], current, StringComparison.OrdinalIgnoreCase))
                 {
-                    return filters[(i + 1) % filters.Length];
+                    return options[(i + 1) % options.Count];
                 }
             }
-            return string.Empty;
+
+            // The current filter is no longer available, so start over from none.
+            return options[0];
+        }
+
+        private static List<string> FilterOptions(MusicLibrary library)
+        {
+            var letters = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var track in library.All)
+            {
+                var first = FirstLetter(track);
+                if (first != null)
+                {
+                    letters.Add(first);
+                }
+            }
+
+            var options = new List<string> { string.Empty };
+            foreach (var letter in letters)
+            {
+                options.Add(letter);
+            }
+
+            return options;
+        }
+
+        /// <summary>
+        /// The letter the list sorts a track under: its artist when it has one, since
+        /// that is the default sort, otherwise the first letter of its title.
+        /// </summary>
+        private static string FirstLetter(MusicTrack track)
+        {
+            var source = string.IsNullOrEmpty(track.Artist) ? track.DisplayTitle : track.Artist;
+            if (string.IsNullOrEmpty(source))
+            {
+                return null;
+            }
+
+            var trimmed = source.TrimStart();
+            if (trimmed.Length == 0 || !char.IsLetter(trimmed[0]))
+            {
+                return null;
+            }
+
+            return trimmed.Substring(0, 1).ToUpperInvariant();
         }
 
         private void OnRescan(int index, TextMenu.Item item)

@@ -19,6 +19,15 @@ namespace RPMusicPlayer
         /// <summary>Set once the clip has actually been decoded.</summary>
         internal double DurationSeconds;
 
+        /// <summary>
+        /// Shown in the browser next to the title when the file is suspected not to
+        /// be decodable, for example an ogg that also carries a video stream. The
+        /// suspicion does not stop the track being selected: whether the audio engine
+        /// can decode the file is only settled by trying, and a track that fails to
+        /// load is reported in the log rather than breaking anything.
+        /// </summary>
+        internal string Warning;
+
         internal MusicTrack(string path, TrackTags tags)
         {
             Path = path;

@@ -18,6 +18,9 @@ namespace RPMusicPlayer
         private readonly TextMenu menu = new TextMenu();
         private int selection;
 
+        /// <summary>Menu index of the volume row, so left and right can adjust it.</summary>
+        private int volumeRow = -1;
+
         public override void OnAwake()
         {
             base.OnAwake();
@@ -58,13 +61,6 @@ namespace RPMusicPlayer
                 text.AppendLine(Truncate(line, width));
             }
             text.Append(menu.ShowMenu(width, menuHeight));
-
-            var legend = BuildLegend();
-            if (!string.IsNullOrEmpty(legend) && height > header.Count + menu.Count + 3)
-            {
-                text.AppendLine();
-                text.Append(legend);
-            }
 
             return text.ToString();
         }
@@ -109,17 +105,17 @@ namespace RPMusicPlayer
 
             var hasTrack = state.Current != null;
 
-            menu.Add(new TextMenu.Item("Previous <<", (i, item) => player.Previous(), 0)
-            {
-                isDisabled = !hasTrack
-            });
-
             menu.Add(new TextMenu.Item(PlayPauseLabel(state), (i, item) => player.TogglePause(), 0)
             {
                 isDisabled = !hasTrack
             });
 
-            menu.Add(new TextMenu.Item("Next  >>", (i, item) => player.Next(), 0)
+            menu.Add(new TextMenu.Item("Next Track", (i, item) => player.Next(), 0)
+            {
+                isDisabled = !hasTrack
+            });
+
+            menu.Add(new TextMenu.Item("Previous Track", (i, item) => player.Previous(), 0)
             {
                 isDisabled = !hasTrack
             });
@@ -134,9 +130,9 @@ namespace RPMusicPlayer
                 isSelected = state.Repeat != RepeatMode.Off
             });
 
-            var volume = Settings.Current.Volume;
-            menu.Add(new TextMenu.Item("Volume:  " + volume.ToString("P0") + "   (-)", (i, item) => player.AdjustVolume(-0.1f), 0));
-            menu.Add(new TextMenu.Item("Volume:  " + volume.ToString("P0") + "   (+)", (i, item) => player.AdjustVolume(0.1f), 0));
+            menu.Add(new TextMenu.Item("Volume:  " + Settings.Current.Volume.ToString("P0"),
+                (i, item) => player.AdjustVolume(0.05f), 0));
+            volumeRow = menu.Count - 1;
 
             if (state.HasQueue)
             {
@@ -144,8 +140,6 @@ namespace RPMusicPlayer
                     "Queue:   " + (state.QueueIndex + 1) + " of " + state.Queue.Count,
                     null, 0) { isDisabled = true });
             }
-
-            menu.Add(new TextMenu.Item(">>  LIBRARY  >>", (i, item) => GoToBrowserPage(), 0));
 
             menu.currentSelection = Mathf.Clamp(selection, 0, menu.Count - 1);
             selection = menu.currentSelection;
@@ -155,13 +149,13 @@ namespace RPMusicPlayer
         {
             if (state.Current == null)
             {
-                return "Play >";
+                return "Play";
             }
             if (state.IsPaused)
             {
-                return "Play  >";
+                return "Play";
             }
-            return "Pause ||";
+            return "Pause";
         }
 
         private static string OnOff(bool value)
@@ -177,6 +171,11 @@ namespace RPMusicPlayer
                 case RepeatMode.One: return "ONE";
                 default: return "off";
             }
+        }
+
+        protected override void SwitchView()
+        {
+            GoToBrowserPage();
         }
 
         protected override void OnButtonPressed(int buttonID)
@@ -205,6 +204,34 @@ namespace RPMusicPlayer
             else if (Matches(map, MonitorButton.Back, buttonID))
             {
                 GoToBrowserPage();
+            }
+            else if (Matches(map, MonitorButton.Left, buttonID))
+            {
+                AdjustVolumeIfSelected(-0.05f);
+            }
+            else if (Matches(map, MonitorButton.Right, buttonID))
+            {
+                AdjustVolumeIfSelected(0.05f);
+            }
+        }
+
+        /// <summary>
+        /// Left and right change the volume when the volume row is the one under
+        /// the cursor. On any other row they do nothing, so they never move
+        /// between the pages: that is what the next and previous buttons are for.
+        /// </summary>
+        private void AdjustVolumeIfSelected(float delta)
+        {
+            if (menu.currentSelection != volumeRow)
+            {
+                return;
+            }
+
+            var player = Player;
+            if (player != null)
+            {
+                player.AdjustVolume(delta);
+                MarkDirty();
             }
         }
 
