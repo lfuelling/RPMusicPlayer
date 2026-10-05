@@ -35,7 +35,7 @@ namespace RPMusicPlayer
             var player = Player;
             if (player == null)
             {
-                return "== MUSIC LIBRARY ==\nNot flying a vessel.";
+                return "         == MUSIC LIBRARY ==\n         Not flying a vessel.";
             }
 
             var state = State;
@@ -65,17 +65,17 @@ namespace RPMusicPlayer
         private void Rebuild(PlayerState state, PlayerManager player)
         {
             menu.Clear();
-            menu.menuTitle = "== MUSIC LIBRARY ==";
+            menu.menuTitle = "         == MUSIC LIBRARY ==";
 
             if (state == null)
             {
-                menu.Add(new TextMenu.Item("Not flying a vessel.") { isDisabled = true });
+                menu.Add(new TextMenu.Item("          Not flying a vessel.") { isDisabled = true });
                 return;
             }
 
             if (player.Library.IsScanning)
             {
-                menu.Add(new TextMenu.Item("Scanning music folder...") { isDisabled = true });
+                menu.Add(new TextMenu.Item("       Scanning music folder...") { isDisabled = true });
                 return;
             }
 
@@ -84,7 +84,7 @@ namespace RPMusicPlayer
             if (view.Count == 0)
             {
                 var message = string.IsNullOrEmpty(state.Filter)
-                    ? "No music found. Drop files into the music folder and rescan."
+                    ? "No music found!"
                     : "Nothing matches the filter.";
                 menu.Add(new TextMenu.Item(message) { isDisabled = true });
                 AddControls(state, player);
@@ -114,8 +114,10 @@ namespace RPMusicPlayer
 
         private void AddControls(PlayerState state, PlayerManager player)
         {
+            menu.Add(new TextMenu.Item());
             menu.Add(new TextMenu.Item(">> NOW PLAYING >>", OnNowPlaying, 0) { isDisabled = state.Current == null });
 
+            menu.Add(new TextMenu.Item());
             var sortLabel = state.SortField + (state.Descending ? " v" : " ^");
             menu.Add(new TextMenu.Item("Sort by: " + sortLabel, OnCycleSort, 0));
 
@@ -125,6 +127,7 @@ namespace RPMusicPlayer
                 isDisabled = player.Library.Count < 20
             });
 
+            menu.Add(new TextMenu.Item());
             menu.Add(new TextMenu.Item("Rescan music folder", OnRescan, 0));
         }
 

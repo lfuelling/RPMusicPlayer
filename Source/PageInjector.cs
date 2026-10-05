@@ -28,7 +28,7 @@ namespace RPMusicPlayer
         private static readonly FieldInfo ModuleConfigField = typeof(RasterPropMonitor)
             .GetField("moduleConfig", BindingFlags.Instance | BindingFlags.NonPublic);
 
-        private static bool announcedEntryButton;
+       
 
                 /// <summary>The button name that opens the music pages on the last patched monitor.</summary>
                 internal static string EntryButtonName { get; private set; }
@@ -417,35 +417,6 @@ namespace RPMusicPlayer
             }
         }
 
-        /// <summary>
-        /// Tells the player which button opens the player. Called when they enter IVA,
-        /// because a message posted while they were still at the map view would be missed.
-        /// </summary>
-        internal static void AnnounceEntryButton()
-        {
-            if (announcedEntryButton || string.IsNullOrEmpty(EntryButtonName))
-            {
-                return;
-            }
-
-            announcedEntryButton = true;
-
-            var entryName = EntryButtonName;
-            var label = entryName.StartsWith("button", StringComparison.OrdinalIgnoreCase)
-                ? entryName.Substring("button".Length)
-                : entryName;
-
-            ScreenMessages.PostScreenMessage(
-                "RPMusicPlayer: press " + label + " on the RPM screen to open the music player.",
-                8f,
-                ScreenMessageStyle.UPPER_CENTER);
-        }
-
-        /// <summary>Lets the hint be shown again, e.g. after switching vessels.</summary>
-        internal static void ResetAnnouncement()
-        {
-            announcedEntryButton = false;
-        }
 
         /// <summary>
         /// Finds one of the pages we added, so the pages can switch to each other.

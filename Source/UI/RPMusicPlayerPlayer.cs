@@ -38,7 +38,7 @@ namespace RPMusicPlayer
 
             if (player == null)
             {
-                return "== NOW PLAYING ==\nNot flying a vessel.";
+                return "           == NOW PLAYING ==\n\n         Not flying a vessel.";
             }
 
             if (IsDirty)
@@ -72,14 +72,14 @@ namespace RPMusicPlayer
         /// <summary>The track details above the controls.</summary>
         private List<string> BuildHeader(PlayerState state, PlayerManager player)
         {
-            var lines = new List<string> { "== NOW PLAYING ==" };
+            var lines = new List<string> { "          == NOW PLAYING ==" };
 
             var current = state == null ? null : state.Current;
             if (current == null)
             {
                 lines.Add(string.Empty);
-                lines.Add("Nothing selected.");
-                lines.Add("Open the library to pick a song.");
+                lines.Add("      Nothing selected.");
+                lines.Add("   Open the library to pick a song.");
                 return lines;
             }
 
@@ -102,14 +102,14 @@ namespace RPMusicPlayer
 
             if (state == null)
             {
-                menu.Add(new TextMenu.Item("Not flying a vessel.") { isDisabled = true });
+                menu.Add(new TextMenu.Item("         Not flying a vessel.") { isDisabled = true });
                 menu.currentSelection = 0;
                 return;
             }
 
             var hasTrack = state.Current != null;
 
-            menu.Add(new TextMenu.Item("<<  Previous", (i, item) => player.Previous(), 0)
+            menu.Add(new TextMenu.Item("Previous <<", (i, item) => player.Previous(), 0)
             {
                 isDisabled = !hasTrack
             });
@@ -155,13 +155,13 @@ namespace RPMusicPlayer
         {
             if (state.Current == null)
             {
-                return "Play";
+                return "Play >";
             }
             if (state.IsPaused)
             {
                 return "Play  >";
             }
-            return "Pause";
+            return "Pause ||";
         }
 
         private static string OnOff(bool value)

@@ -121,16 +121,6 @@ namespace RPMusicPlayer
                 }
             }
 
-            // The hint is only useful once the player can see the screens.
-            if (FlightContext.InsidePod)
-            {
-                if (!lastInsidePod)
-                {
-                    PageInjector.ResetAnnouncement();
-                }
-                PageInjector.AnnounceEntryButton();
-            }
-
             lastInsidePod = FlightContext.InsidePod;
 
             // A few low frequency lines proving the per frame work is alive in flight.
