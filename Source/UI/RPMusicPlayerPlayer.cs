@@ -83,11 +83,16 @@ namespace RPMusicPlayer
             lines.Add("Artist: " + Fallback(current.Artist, "unknown"));
             lines.Add("Album:  " + Fallback(current.Album, "unknown"));
             lines.Add("Time:   " + PositionText(player.Audio));
+            lines.Add("");
 
             if (player.Audio.IsLoading)
             {
                 lines.Add("Loading...");
+            } else
+            {
+                lines.Add("");
             }
+            lines.Add("");
 
             return lines;
         }
