@@ -3,9 +3,10 @@
     Builds RPMusicPlayer and copies it into a KSP install.
 
 .DESCRIPTION
-    Compiles in Release and deploys the plugin dll, the configuration file and the
-    music folder into the KSP GameData folder. The music folder is only created, never
-    overwritten, so your music is left alone.
+    Compiles in Release and deploys the plugin dll, the configuration file, the
+    license and the music folder into the KSP GameData folder. The license is
+    copied because the GPL requires it to travel with the dll. The music folder
+    is only created, never overwritten, so your music is left alone.
 
 .PARAMETER KspDir
     Path to the KSP install. Defaults to the same location the project builds against.
@@ -58,6 +59,11 @@ New-Item -ItemType Directory -Force -Path (Join-Path $target 'Music') | Out-Null
 Copy-Item -LiteralPath $dll -Destination (Join-Path $target 'Plugins\RPMusicPlayer.dll') -Force
 Copy-Item -LiteralPath (Join-Path $projectRoot 'GameData\RPMusicPlayer\RPMusicPlayer.cfg') -Destination $target -Force
 
+# The GPL requires the license to travel with the dll, so ship it in the
+# deployed folder rather than only in the source tree.
+Copy-Item -LiteralPath (Join-Path $projectRoot 'LICENSE') -Destination $target -Force
+
 Write-Host 'Done.' -ForegroundColor Green
 Write-Host "Plugin:   $(Join-Path $target 'Plugins\RPMusicPlayer.dll')"
+Write-Host "License:  $(Join-Path $target 'LICENSE')"
 Write-Host "Music:    $(Join-Path $target 'Music')"
