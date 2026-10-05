@@ -1,0 +1,16 @@
+# Build output
+bin/
+obj/
+
+# Visual Studio / Zed scratch
+.vs/
+*.user
+*.suo
+
+# Test output
+Tests/bin/
+Tests/obj/
+
+# Music you drop into the shipped folder
+GameData/RPMusicPlayer/Music/*
+!GameData/RPMusicPlayer/Music/README.txt

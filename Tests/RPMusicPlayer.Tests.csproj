@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Standalone checks for the parts of the plugin that do not need Kerbal Space
+    Program: the ID3 reader and the track formatting. Run it with:
+        dotnet run (from the Tests folder)
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <LangVersion>7.3</LangVersion>
+    <AssemblyName>RPMusicPlayer.Tests</AssemblyName>
+    <RootNamespace>RPMusicPlayer.Tests</RootNamespace>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="Stubs.cs" />
+    <Compile Include="..\Source\TagReader.cs" />
+    <Compile Include="..\Source\MusicTrack.cs" />
+  </ItemGroup>
+
+</Project>
