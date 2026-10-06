@@ -130,6 +130,11 @@ namespace RPMusicPlayer
                 isSelected = state.Shuffle
             });
 
+            menu.Add(new TextMenu.Item("Crossfade: " + OnOff(state.Crossfade), (i, item) => player.ToggleCrossfade(), 0)
+            {
+                isSelected = state.Crossfade
+            });
+
             menu.Add(new TextMenu.Item("Repeat:  " + RepeatLabel(state), (i, item) => player.CycleRepeat(), 0)
             {
                 isSelected = state.Repeat != RepeatMode.Off

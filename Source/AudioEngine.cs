@@ -15,13 +15,39 @@ namespace RPMusicPlayer
     /// </summary>
     public sealed class AudioEngine : MonoBehaviour
     {
+        /// <summary>How long a crossfade lasts, in seconds.</summary>
+        internal const float CrossfadeSeconds = 3f;
+
         private AudioSource source;
+
+        // Crossfade: while the new track plays on the main source, the previous one
+        // keeps sounding on this second source and fades out.
+        private AudioSource fadeSource;
+        private AudioClip fadingClip;
+        private float fadeStartedAt;
+        private float fadeFromVolume;
+
+        // The freshly started track of a crossfade ramps up from silence instead of
+        // starting at full volume.
+        private bool fadeInProgress;
+        private float fadeInStartedAt;
+
+        private float wantedVolume = 1f;
+
+        private bool nearingEndRaised;
 
         /// <summary>Raised on the main thread once a track has finished playing.</summary>
         internal event Action<MusicTrack> TrackFinished;
 
         /// <summary>Raised once a new clip has finished loading, successfully or not.</summary>
         internal event Action<MusicTrack, AudioClip> TrackLoaded;
+
+        /// <summary>
+        /// Raised on the main thread when the current track is within the crossfade
+        /// window of its end, while it is still playing. The listener decides whether
+        /// to start the next song now or let it finish normally.
+        /// </summary>
+        internal event Action TrackNearingEnd;
 
         internal MusicTrack Current { get; private set; }
         internal AudioClip CurrentClip { get; private set; }
@@ -54,13 +80,32 @@ namespace RPMusicPlayer
 
         internal float Volume
         {
-            get { return source != null ? source.volume : 0f; }
+            get { return wantedVolume; }
             set
             {
-                if (source != null)
+                wantedVolume = Mathf.Clamp01(value);
+                ApplyVolume();
+            }
+        }
+
+        /// <summary>The gain the playing source currently carries, so a crossfade starts quiet.</summary>
+        private float FadeInGain
+        {
+            get
+            {
+                if (!fadeInProgress)
                 {
-                    source.volume = Mathf.Clamp01(value);
+                    return 1f;
                 }
+                return Mathf.Clamp01((Time.realtimeSinceStartup - fadeInStartedAt) / CrossfadeSeconds);
+            }
+        }
+
+        private void ApplyVolume()
+        {
+            if (source != null)
+            {
+                source.volume = Mathf.Clamp01(wantedVolume * FadeInGain);
             }
         }
 
@@ -77,6 +122,13 @@ namespace RPMusicPlayer
             source.spatialBlend = 0f;
             source.dopplerLevel = 0f;
             source.priority = 0;
+
+            fadeSource = gameObject.AddComponent<AudioSource>();
+            fadeSource.playOnAwake = false;
+            fadeSource.loop = false;
+            fadeSource.spatialBlend = 0f;
+            fadeSource.dopplerLevel = 0f;
+            fadeSource.priority = 0;
         }
 
         /// <summary>Re-applies the volume, e.g. after KSP's master volume changed.</summary>
@@ -103,16 +155,35 @@ namespace RPMusicPlayer
         /// </summary>
         internal void Play(MusicTrack track, double startAt)
         {
+            Play(track, startAt, false);
+        }
+
+        /// <summary>
+        /// Starts a track, optionally crossfading: what is playing is handed to a
+        /// second source and fades out while the new one ramps up underneath it.
+        /// </summary>
+        internal void Play(MusicTrack track, double startAt, bool fadeOutCurrent)
+        {
             if (track == null)
             {
                 Stop();
                 return;
             }
 
-            Stop();
+            if (fadeOutCurrent && TryBeginFadeOut())
+            {
+                // The old track is fading on the second source; the main source is idle.
+            }
+            else
+            {
+                Stop();
+            }
+
             Current = track;
             IsPaused = false;
             IsLoading = true;
+            nearingEndRaised = false;
+            fadeInProgress = fadeOutCurrent;
             StartCoroutine(LoadAndPlay(track, startAt));
         }
 
@@ -200,6 +271,12 @@ namespace RPMusicPlayer
                     Seek(source, clip, startAt);
                 }
                 source.Play();
+                if (fadeInProgress)
+                {
+                    // The fade in is measured against the moment the music actually
+                    // starts, not the moment Play was called.
+                    fadeInStartedAt = Time.realtimeSinceStartup;
+                }
                 IsPlaying = true;
 
                 Log.Info("Loaded '{0}': {1}s, {2} channel(s), {3} Hz, load type {4}, state {5}.",
@@ -306,6 +383,11 @@ namespace RPMusicPlayer
             IsPlaying = false;
             IsPaused = true;
             source.Pause();
+
+            if (fadeSource != null && fadeSource.isPlaying)
+            {
+                fadeSource.Pause();
+            }
         }
 
         internal void Resume()
@@ -318,11 +400,18 @@ namespace RPMusicPlayer
             IsPaused = false;
             IsPlaying = true;
             source.Play();
+
+            if (fadeSource != null && fadingClip != null && !fadeSource.isPlaying)
+            {
+                fadeSource.UnPause();
+            }
         }
 
         /// <summary>Stops and forgets the current track.</summary>
         internal void Stop()
         {
+            EndFadeOut();
+
             if (source != null)
             {
                 source.Stop();
@@ -333,11 +422,14 @@ namespace RPMusicPlayer
             CurrentClip = null;
             IsPlaying = false;
             IsPaused = false;
+            fadeInProgress = false;
         }
 
         /// <summary>Stops the source but keeps the clip, so playback can resume later.</summary>
         internal void StopKeepingPosition()
         {
+            EndFadeOut();
+
             if (source != null)
             {
                 source.Stop();
@@ -348,9 +440,34 @@ namespace RPMusicPlayer
 
         private void Update()
         {
+            UpdateFadeOut();
+
             if (source == null || CurrentClip == null || IsLoading)
             {
                 return;
+            }
+
+            if (fadeInProgress)
+            {
+                ApplyVolume();
+                if (FadeInGain >= 1f)
+                {
+                    fadeInProgress = false;
+                }
+            }
+
+            // Give the player a chance to crossfade while the tail of the track is
+            // still sounding. A repeat of the current song and queues that end are
+            // still handled by TrackFinished, whatever the listener decides here.
+            if (IsPlaying && !nearingEndRaised
+                && CurrentClip.length - source.time <= CrossfadeSeconds)
+            {
+                nearingEndRaised = true;
+                var nearEnd = TrackNearingEnd;
+                if (nearEnd != null)
+                {
+                    nearEnd();
+                }
             }
 
             // Unity raises no event when a one shot clip finishes, and every path that
@@ -369,6 +486,94 @@ namespace RPMusicPlayer
             }
         }
 
+        private void UpdateFadeOut()
+        {
+            if (fadingClip == null)
+            {
+                return;
+            }
+
+            var elapsed = Time.realtimeSinceStartup - fadeStartedAt;
+            var progress = elapsed / CrossfadeSeconds;
+
+            if (progress >= 1f || (elapsed > 0.5f && fadeSource != null && !fadeSource.isPlaying))
+            {
+                EndFadeOut();
+                return;
+            }
+
+            if (fadeSource != null)
+            {
+                fadeSource.volume = Mathf.Clamp01(fadeFromVolume * (1f - progress));
+            }
+        }
+
+        /// <summary>
+        /// Hands the track that is playing to the second source, where it fades out
+        /// over the crossfade window, and frees the main source for the next song.
+        /// Returns false when there is nothing to fade, in which case a plain stop is
+        /// just as good.
+        /// </summary>
+        private bool TryBeginFadeOut()
+        {
+            if (fadeSource == null || source == null || CurrentClip == null || !IsPlaying)
+            {
+                return false;
+            }
+
+            var fromVolume = source.volume;
+
+            var position = Mathf.Clamp((float)source.time, 0f, Mathf.Max(0f, CurrentClip.length - 0.05f));
+
+            fadeSource.clip = CurrentClip;
+            fadeSource.volume = fromVolume;
+            fadeSource.Play();
+            try
+            {
+                fadeSource.time = position;
+            }
+            catch (Exception)
+            {
+                // Formats that cannot be seeked would replay from the beginning, which
+                // is worse than a plain stop, so give up on the fade entirely.
+                EndFadeOut();
+                return false;
+            }
+
+            fadingClip = CurrentClip;
+            fadeFromVolume = fromVolume;
+            fadeStartedAt = Time.realtimeSinceStartup;
+
+            // The main source forgets the track; the clip now belongs to the fade and
+            // is only released once it has ended.
+            fadeInProgress = false;
+            source.Stop();
+            source.clip = null;
+            Current = null;
+            CurrentClip = null;
+            IsPlaying = false;
+            IsPaused = false;
+            return true;
+        }
+
+        /// <summary>Stops the fade out and releases the clip it was playing.</summary>
+        private void EndFadeOut()
+        {
+            if (fadeSource != null && fadeSource.isPlaying)
+            {
+                fadeSource.Stop();
+            }
+            if (fadeSource != null)
+            {
+                fadeSource.clip = null;
+            }
+            if (fadingClip != null)
+            {
+                Destroy(fadingClip);
+                fadingClip = null;
+            }
+        }
+
         private void ReleaseClip()
         {
             if (CurrentClip != null)
@@ -380,6 +585,7 @@ namespace RPMusicPlayer
 
         private void OnDestroy()
         {
+            EndFadeOut();
             Stop();
             ReleaseClip();
         }

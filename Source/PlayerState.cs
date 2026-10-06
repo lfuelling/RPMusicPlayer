@@ -29,6 +29,9 @@ namespace RPMusicPlayer
         internal RepeatMode Repeat = RepeatMode.Off;
         internal bool Shuffle;
 
+        /// <summary>Whether the next song starts on top of the fading out one.</summary>
+        internal bool Crossfade;
+
         /// <summary>Set by the play/pause button.</summary>
         internal bool UserPaused;
 

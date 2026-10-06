@@ -53,6 +53,7 @@ namespace RPMusicPlayer
             Audio.RefreshVolume();
             Audio.TrackFinished += OnTrackFinished;
             Audio.TrackLoaded += OnTrackLoaded;
+            Audio.TrackNearingEnd += OnTrackNearingEnd;
         }
 
         internal void Tick()
@@ -435,6 +436,33 @@ namespace RPMusicPlayer
             StartQueueIndex(state, next);
         }
 
+        /// <summary>
+        /// Crossfade: the current track is inside its last three seconds, so start the
+        /// next one now, on top of the one that is fading out. Repeating one song and
+        /// a queue that has ended still finish normally.
+        /// </summary>
+        private void OnTrackNearingEnd()
+        {
+            var state = CurrentState;
+            if (state == null || !state.Crossfade
+                || state.Repeat == RepeatMode.One || Audio.IsLoading)
+            {
+                return;
+            }
+
+            int next = state.QueueIndex + 1;
+            if (next >= state.Queue.Count)
+            {
+                if (!(state.Repeat == RepeatMode.All && state.Queue.Count > 0))
+                {
+                    return;
+                }
+                next = 0;
+            }
+
+            StartQueueIndex(state, next);
+        }
+
         private void OnTrackLoaded(MusicTrack track, AudioClip clip)
         {
             RaisePlaybackChanged();
@@ -447,7 +475,10 @@ namespace RPMusicPlayer
             state.ContextPaused = false;
             state.AutoResumeOnReturn = false;
             state.ResetPosition();
-            Audio.Play(state.Current, 0);
+
+            // With crossfade on, whatever is still playing fades out underneath the
+            // new track; Audio.Play falls back to a plain stop when nothing sounds.
+            Audio.Play(state.Current, 0, state.Crossfade && Audio.IsPlaying);
             RaisePlaybackChanged();
         }
 
@@ -479,6 +510,18 @@ namespace RPMusicPlayer
             {
                 ShuffleRemaining(state);
             }
+            RaisePlaybackChanged();
+        }
+
+        internal void ToggleCrossfade()
+        {
+            var state = StateForActiveVessel();
+            if (state == null)
+            {
+                return;
+            }
+
+            state.Crossfade = !state.Crossfade;
             RaisePlaybackChanged();
         }
 
@@ -524,6 +567,7 @@ namespace RPMusicPlayer
             {
                 Audio.TrackFinished -= OnTrackFinished;
                 Audio.TrackLoaded -= OnTrackLoaded;
+                Audio.TrackNearingEnd -= OnTrackNearingEnd;
             }
         }
     }

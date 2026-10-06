@@ -91,6 +91,7 @@ Play
 Next Track
 Previous Track
 Shuffle: off
+Crossfade: off
 Repeat:  off
 Volume:  70%
 Queue:   3 of 42
@@ -98,6 +99,11 @@ Queue:   3 of 42
 
 On/off settings are shown in green when active. Repeat cycles `off` → `ALL` → `ONE`. The queue row
 appears only once something is playing.
+
+With `Crossfade` on, the next song starts on top of the current one when it has three seconds
+left, so songs blend into each other instead of cutting. Repeat one is excluded: the same song
+restarts cleanly. Next and previous also crossfade while the setting is on, and switching it
+off mid song is instant: the current song simply plays to its end.
 
 ## Configuration
 
