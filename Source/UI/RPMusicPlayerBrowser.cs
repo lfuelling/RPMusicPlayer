@@ -24,13 +24,46 @@ namespace RPMusicPlayer
         private List<MusicTrack> view = new List<MusicTrack>();
 
         /// <summary>
+        /// Survives the rebuilds, so changing a setting leaves the cursor on the
+        /// row that was changed instead of throwing it back to the top of the list.
+        /// </summary>
+        private readonly MenuCursor cursor = new MenuCursor();
+
+        /// <summary>
         /// Menu indices of the rows left and right can step through, so those
         /// buttons act on whichever of them is under the cursor. -1 when the row
         /// is not on the page, which stops a stale index from firing.
         /// </summary>
         private int sortRow = -1;
         private int orderRow = -1;
+        private int filterFieldRow = -1;
         private int filterRow = -1;
+
+        /// <summary>
+        /// Names for the setting rows, so the cursor can follow the one the player
+        /// is on when the song list above them changes length.
+        ///
+        /// Held as a field and refilled in place rather than built per rebuild:
+        /// Rebuild throws away a whole menu full of TextMenu.Items anyway, so there
+        /// is no reason to add a list on top of that.
+        /// </summary>
+        private readonly KeyValuePair<int, int>[] namedRows = new KeyValuePair<int, int>[4];
+
+        private enum Row
+        {
+            Sort = 1,
+            Order,
+            FilterField,
+            Filter
+        }
+
+        private void FillNamedRows()
+        {
+            namedRows[0] = new KeyValuePair<int, int>((int)Row.Sort, sortRow);
+            namedRows[1] = new KeyValuePair<int, int>((int)Row.Order, orderRow);
+            namedRows[2] = new KeyValuePair<int, int>((int)Row.FilterField, filterFieldRow);
+            namedRows[3] = new KeyValuePair<int, int>((int)Row.Filter, filterRow);
+        }
 
         public override void OnAwake()
         {
@@ -72,11 +105,13 @@ namespace RPMusicPlayer
             menu.Clear();
             sortRow = -1;
             orderRow = -1;
+            filterFieldRow = -1;
             filterRow = -1;
 
             if (state == null)
             {
                 menu.Add(new TextMenu.Item("          Not flying a vessel.") { isDisabled = true });
+                RestoreCursor();
                 return;
             }
 
@@ -86,10 +121,11 @@ namespace RPMusicPlayer
             if (player.Library.IsScanning)
             {
                 menu.Add(new TextMenu.Item("       Scanning music folder...") { isDisabled = true });
+                RestoreCursor();
                 return;
             }
 
-            view = player.Library.View(state.Filter, state.SortField, state.Descending);
+            view = player.Library.View(state.Filter, state.FilterField, state.SortField, state.Descending);
 
             if (view.Count == 0)
             {
@@ -98,6 +134,7 @@ namespace RPMusicPlayer
                     : "Nothing matches the filter.";
                 menu.Add(new TextMenu.Item(message) { isDisabled = true });
                 AddControls(state);
+                RestoreCursor();
                 return;
             }
 
@@ -127,9 +164,68 @@ namespace RPMusicPlayer
                 menu.Add(item);
             }
 
-            menu.currentSelection = selection + LeadingItems;
-
             AddControls(state);
+            RestoreCursor();
+        }
+
+        /// <summary>
+        /// Puts the cursor back where the player left it. The setting rows sit
+        /// below the songs, so they move when the list changes length; naming
+        /// them is what keeps the cursor on the sort, order or filter row rather
+        /// than on whatever row now occupies that position.
+        /// </summary>
+        private void RestoreCursor()
+        {
+            if (cursor.Row < 0)
+            {
+                // First time round, or after a reset: start on the first song.
+                cursor.MoveTo(LeadingItems + ClampSelection());
+            }
+
+            FillNamedRows();
+            menu.currentSelection = cursor.Restore(menu.Count, namedRows);
+        }
+
+        /// <summary>
+        /// Records where the cursor is, naming it when it is on one of the setting
+        /// rows so the cursor is found again on the right row after a rebuild.
+        /// </summary>
+        private void RememberCursorRow()
+        {
+            var selection = menu.currentSelection;
+
+            if (selection == sortRow)
+            {
+                cursor.MoveTo(selection, (int)Row.Sort);
+            }
+            else if (selection == orderRow)
+            {
+                cursor.MoveTo(selection, (int)Row.Order);
+            }
+            else if (selection == filterFieldRow)
+            {
+                cursor.MoveTo(selection, (int)Row.FilterField);
+            }
+            else if (selection == filterRow)
+            {
+                cursor.MoveTo(selection, (int)Row.Filter);
+            }
+            else
+            {
+                cursor.MoveTo(selection);
+            }
+        }
+
+        private int ClampSelection()
+        {
+            var state = State;
+            var selection = state == null ? 0 : state.BrowserSelection;
+
+            if (view.Count == 0)
+            {
+                return 0;
+            }
+            return selection < 0 || selection >= view.Count ? 0 : selection;
         }
 
         private void AddControls(PlayerState state)
@@ -143,10 +239,20 @@ namespace RPMusicPlayer
             menu.Add(new TextMenu.Item("Order: " + (state.Descending ? "descending" : "ascending"), OnToggleDirection, 0));
             orderRow = menu.Count - 1;
 
+            var filterEnabled = FilterEnabled();
+
+            // Which tag the filter reads. Without this the filter can only ever
+            // look at the one the list happens to be sorted by.
+            menu.Add(new TextMenu.Item("Filter by: " + state.FilterField, OnCycleFilterField, 0)
+            {
+                isDisabled = !filterEnabled
+            });
+            filterFieldRow = menu.Count - 1;
+
             var filterLabel = string.IsNullOrEmpty(state.Filter) ? "none" : state.Filter;
             menu.Add(new TextMenu.Item("Filter: " + filterLabel, OnCycleFilter, 0)
             {
-                isDisabled = !FilterEnabled()
+                isDisabled = !filterEnabled
             });
             filterRow = menu.Count - 1;
 
@@ -179,6 +285,9 @@ namespace RPMusicPlayer
             }
             else if (Matches(map, MonitorButton.Select, buttonID))
             {
+                // Activating a setting row rebuilds the menu, so the cursor is
+                // recorded before the callback rather than after.
+                RememberCursorRow();
                 menu.SelectItem();
             }
             else if (Matches(map, MonitorButton.Back, buttonID))
@@ -197,13 +306,22 @@ namespace RPMusicPlayer
 
         /// <summary>
         /// Left and right step backwards or forwards through whichever of the sort,
-        /// order and filter rows is under the cursor, so select is not the only way
-        /// to reach them. On a song row or on rescan they do nothing, so they never
-        /// move between the pages: that is what the next and previous buttons are for.
+        /// order, filter by and filter rows is under the cursor, so select is not the
+        /// only way to reach them. On a song row or on rescan they do nothing, so they
+        /// never move between the pages: that is what the next and previous buttons
+        /// are for.
         /// </summary>
         private void StepRow(int direction)
         {
             var selection = menu.currentSelection;
+
+            // Left and right on a setting row change it and rebuild, so the cursor
+            // has to be recorded before the rebuild throws it away.
+            if (selection == sortRow || selection == orderRow
+                || selection == filterRow || selection == filterFieldRow)
+            {
+                RememberCursorRow();
+            }
 
             if (selection == sortRow)
             {
@@ -217,12 +335,17 @@ namespace RPMusicPlayer
             {
                 CycleFilter(direction);
             }
+            else if (selection == filterFieldRow && FilterEnabled())
+            {
+                CycleFilterField(direction);
+            }
         }
 
         /// <summary>
-        /// The filter row is greyed out when the library is too small for a filter
-        /// to mean anything, so left and right have to honour the same rule that
-        /// select does. Shared with the row itself so the two cannot drift apart.
+        /// The filter row is greyed out along with the row above it when the library
+        /// is too small for a filter to mean anything, so left and right have to
+        /// honour the same rule that select does. Shared with the rows themselves so
+        /// the two cannot drift apart.
         /// </summary>
         private bool FilterEnabled()
         {
@@ -233,6 +356,12 @@ namespace RPMusicPlayer
         private void RememberSelection()
         {
             var state = State;
+
+            // The cursor row is remembered whether or not it is a song row, so
+            // moving off the songs and back does not lose the place. A setting row
+            // is remembered by name, so it is found again after a rebuild.
+            RememberCursorRow();
+
             if (state == null)
             {
                 return;
@@ -288,8 +417,10 @@ namespace RPMusicPlayer
                 return;
             }
 
+            // The song selection is deliberately left alone: the cursor stays on
+            // the sort row, so resetting the highlighted song would only move the
+            // highlight out from under the player for no reason.
             state.SortField = Step(state.SortField, direction);
-            state.BrowserSelection = 0;
             MarkDirty();
         }
 
@@ -350,78 +481,57 @@ namespace RPMusicPlayer
                 return;
             }
 
-            state.Filter = StepFilter(state.Filter, player.Library, direction);
-            state.BrowserSelection = 0;
+            // As with the sort field, the highlighted song stays put.
+            var options = LibraryQuery.FilterOptions(player.Library.All, state.FilterField);
+            state.Filter = LibraryQuery.StepFilter(state.Filter, options, direction);
+            MarkDirty();
+        }
+
+        private void OnCycleFilterField(int index, TextMenu.Item item)
+        {
+            CycleFilterField(1);
+        }
+
+        /// <summary>
+        /// Changes which tag the filter reads. The letters offered follow the new
+        /// tag, and a letter that only existed for the old one is dropped rather
+        /// than left on, filtering nothing.
+        /// </summary>
+        private void CycleFilterField(int direction)
+        {
+            var state = State;
+            var player = Player;
+            if (state == null || player == null)
+            {
+                return;
+            }
+
+            state.FilterField = StepFilterField(state.FilterField, direction);
+
+            var options = LibraryQuery.FilterOptions(player.Library.All, state.FilterField);
+            state.Filter = LibraryQuery.StepFilter(state.Filter, options, 0);
             MarkDirty();
         }
 
         /// <summary>
-        /// Steps through the starting letters actually present in the library rather
-        /// than a fixed list, so the filter is useful for any collection. A one letter
-        /// filter matches the sort field the list is using, which is what a player
-        /// expects from it.
+        /// The next or previous tag to filter on, wrapping around. File name is left
+        /// out: a filter over file names is the same as searching the library, and
+        /// the letters it offers are rarely what anyone wants to pick from.
         /// </summary>
-        private static string StepFilter(string current, MusicLibrary library, int direction)
+        private static SortField StepFilterField(SortField current, int direction)
         {
-            var options = FilterOptions(library);
-            if (options.Count == 0)
+            var fields = new[]
             {
-                return string.Empty;
+                SortField.Artist, SortField.Album, SortField.Genre, SortField.Title
+            };
+
+            var index = Array.IndexOf(fields, current);
+            if (index < 0)
+            {
+                return fields[0];
             }
 
-            for (int i = 0; i < options.Count; i++)
-            {
-                if (string.Equals(options[i], current, StringComparison.OrdinalIgnoreCase))
-                {
-                    return options[(i + direction + options.Count) % options.Count];
-                }
-            }
-
-            // The current filter is no longer available, so start over from none.
-            return options[0];
-        }
-
-        private static List<string> FilterOptions(MusicLibrary library)
-        {
-            var letters = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            foreach (var track in library.All)
-            {
-                var first = FirstLetter(track);
-                if (first != null)
-                {
-                    letters.Add(first);
-                }
-            }
-
-            var options = new List<string> { string.Empty };
-            foreach (var letter in letters)
-            {
-                options.Add(letter);
-            }
-
-            return options;
-        }
-
-        /// <summary>
-        /// The letter the list sorts a track under: its artist when it has one, since
-        /// that is the default sort, otherwise the first letter of its title.
-        /// </summary>
-        private static string FirstLetter(MusicTrack track)
-        {
-            var source = string.IsNullOrEmpty(track.Artist) ? track.DisplayTitle : track.Artist;
-            if (string.IsNullOrEmpty(source))
-            {
-                return null;
-            }
-
-            var trimmed = source.TrimStart();
-            if (trimmed.Length == 0 || !char.IsLetter(trimmed[0]))
-            {
-                return null;
-            }
-
-            return trimmed.Substring(0, 1).ToUpperInvariant();
+            return fields[(index + direction + fields.Length) % fields.Length];
         }
 
         private void OnRescan(int index, TextMenu.Item item)

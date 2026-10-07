@@ -32,6 +32,8 @@ namespace RPMusicPlayer.Tests
             OggWithVideoStream();
             Durations();
             Playback.Run();
+            Cursor.Run();
+            Filter.Run();
 
             foreach (var file in TempFiles)
             {

@@ -5,18 +5,10 @@ using System.Linq;
 
 namespace RPMusicPlayer
 {
-    public enum SortField
-    {
-        Artist,
-        Album,
-        Genre,
-        Title,
-        FileName
-    }
-
     /// <summary>
-    /// The set of songs found in the music folder, plus the filtering and sorting
-    /// used by the browser page.
+    /// The set of songs found in the music folder. The filtering and sorting that
+    /// turn it into a browsable list live in <see cref="LibraryQuery"/>, so they can
+    /// be tested without the game's configuration.
     /// </summary>
     public sealed class MusicLibrary
     {
@@ -165,64 +157,15 @@ namespace RPMusicPlayer
         }
 
         /// <summary>
-        /// The songs the browser shows: filtered by <paramref name="filter"/> and sorted.
-        /// This is also the queue that gets played once a song is picked.
+        /// The songs the browser shows: filtered by <paramref name="filter"/> on the
+        /// given tag, then sorted. This is also the queue that gets played once a
+        /// song is picked.
         /// </summary>
-        internal List<MusicTrack> View(string filter, SortField sortField, bool descending)
+        internal List<MusicTrack> View(string filter, SortField filterField, SortField sortField, bool descending)
         {
-            IEnumerable<MusicTrack> query = tracks;
-
-            if (!string.IsNullOrEmpty(filter))
-            {
-                var needle = filter.Trim();
-                query = query.Where(t => Matches(t, needle));
-            }
-
-            var sorted = Sort(query, sortField, descending);
+            var matching = LibraryQuery.Filter(tracks, filter, filterField);
+            var sorted = LibraryQuery.Sort(matching, sortField, descending);
             return new List<MusicTrack>(sorted);
-        }
-
-        private static bool Matches(MusicTrack track, string needle)
-        {
-            return Contains(track.Title, needle)
-                || Contains(track.Artist, needle)
-                || Contains(track.Album, needle)
-                || Contains(track.Genre, needle)
-                || Contains(track.FileName, needle);
-        }
-
-        private static bool Contains(string value, string needle)
-        {
-            return !string.IsNullOrEmpty(value)
-                && value.IndexOf(needle, StringComparison.OrdinalIgnoreCase) >= 0;
-        }
-
-        private static IEnumerable<MusicTrack> Sort(IEnumerable<MusicTrack> query, SortField sortField, bool descending)
-        {
-            Func<MusicTrack, string> key = track =>
-            {
-                switch (sortField)
-                {
-                    case SortField.Album: return track.Album ?? string.Empty;
-                    case SortField.Genre: return track.Genre ?? string.Empty;
-                    case SortField.Title: return track.DisplayTitle;
-                    case SortField.FileName: return track.FileName ?? string.Empty;
-                    default: return track.Artist ?? string.Empty;
-                }
-            };
-
-            // Sorted in a stable, culture independent way so the order does not change
-            // with the player's regional settings.
-            var buffer = query.ToList();
-            var indexed = buffer.Select((track, index) => new { track, index });
-
-            var sorted = sortField == SortField.FileName
-                ? indexed.OrderBy(x => x.track.FileName, StringComparer.OrdinalIgnoreCase).ThenBy(x => x.index)
-                : indexed.OrderBy(x => key(x.track), StringComparer.OrdinalIgnoreCase)
-                         .ThenBy(x => x.track.DisplayTitle, StringComparer.OrdinalIgnoreCase)
-                         .ThenBy(x => x.index);
-
-            return descending ? sorted.Reverse().Select(x => x.track) : sorted.Select(x => x.track);
         }
     }
 }

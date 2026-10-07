@@ -21,9 +21,13 @@
     <Compile Include="Inspect.cs" />
     <Compile Include="Stubs.cs" />
     <Compile Include="Playback.cs" />
+    <Compile Include="Cursor.cs" />
+    <Compile Include="Filter.cs" />
     <Compile Include="..\Source\TagReader.cs" />
     <Compile Include="..\Source\MusicTrack.cs" />
     <Compile Include="..\Source\PlaybackQueue.cs" />
+    <Compile Include="..\Source\MenuCursor.cs" />
+    <Compile Include="..\Source\LibraryQuery.cs" />
   </ItemGroup>
 
 </Project>

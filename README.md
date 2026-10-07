@@ -77,12 +77,32 @@ anything.
 
 Sort field and direction, the filter and the rescan are all menu rows in the
 library. Left and right step backwards and forwards through the highlighted row
-when it is one of the three settings, so you can go back to the previous sort
-field or letter without cycling all the way round. They do nothing on a song row
-or on the rescan row, and they never move between the two pages: that is what
-the next and previous buttons are for.
+when it is one of the settings, so you can go back to the previous sort field or
+letter without cycling all the way round. They do nothing on a song row or on the
+rescan row, and they never move between the two pages: that is what the next and
+previous buttons are for.
+
+```
+Sort by: Artist ^
+Order: ascending
+Filter by: Artist
+Filter: none
+Rescan music folder
+```
 
 On the Order row, left sorts ascending and right sorts descending.
+
+`Filter by` picks which tag the filter reads, so the list can be sorted one way
+and filtered another: sort by artist and filter the genres, say. It steps through
+artist, album, genre and title. The `Filter` row below it then offers only the
+starting letters that tag actually has in your library, and matches on the start of
+that tag, so every letter it offers selects something. Switching tags drops a
+letter that only applied to the old one rather than leaving a filter that matches
+nothing.
+
+Changing the sort field, the order or the filter leaves the cursor on the row you
+changed rather than throwing it back to the top of the list, so a setting can be
+stepped through without re-finding it each time.
 
 The player controls are a selectable list, the same shape as the browser:
 
@@ -188,7 +208,7 @@ per vessel queue and playback position are unaffected by going outside.
 
 ```powershell
 dotnet build                 # the plugin
-dotnet run --project Tests   # tag reader, playback queue and formatting checks
+dotnet run --project Tests   # tag reader, playback queue, menu cursor, filter, formatting
 ```
 
 To see what the tag reader makes of a real music folder, outside the game:

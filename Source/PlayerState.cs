@@ -38,6 +38,13 @@ namespace RPMusicPlayer
         internal bool Descending;
         internal int BrowserSelection;
 
+        /// <summary>
+        /// Which tag the filter applies to. Kept separate from <see cref="SortField"/>
+        /// so the list can be sorted one way and filtered another, which is what
+        /// makes the filter useful for anything other than the visible order.
+        /// </summary>
+        internal SortField FilterField = SortField.Artist;
+
         internal PlayerState(Guid vesselId, PlaybackQueue playback)
         {
             VesselId = vesselId;
