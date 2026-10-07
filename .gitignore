@@ -11,6 +11,10 @@ obj/
 Tests/bin/
 Tests/obj/
 
+# Release archives, written next to the script by release.ps1
+RPMusicPlayer.zip
+RPMusicPlayer-*.zip
+
 # Music you drop into the shipped folder
 GameData/RPMusicPlayer/Music/*
 !GameData/RPMusicPlayer/Music/README.txt
