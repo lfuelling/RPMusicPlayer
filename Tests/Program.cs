@@ -31,6 +31,7 @@ namespace RPMusicPlayer.Tests
             OggPacketAcrossPages();
             OggWithVideoStream();
             Durations();
+            Playback.Run();
 
             foreach (var file in TempFiles)
             {
@@ -457,7 +458,7 @@ namespace RPMusicPlayer.Tests
             True(tags.HasVideoStream, "ogg with video: flagged as carrying a video stream");
         }
 
-        private static void True(bool value, string what)
+        internal static void True(bool value, string what)
         {
             checks++;
             if (value)
@@ -468,7 +469,7 @@ namespace RPMusicPlayer.Tests
             Fail(what + ": expected true but got false");
         }
 
-        private static void False(bool value, string what)
+        internal static void False(bool value, string what)
         {
             True(!value, what);
         }
@@ -568,7 +569,7 @@ namespace RPMusicPlayer.Tests
             return TagReader.Read(file);
         }
 
-        private static void Equal(string expected, string actual, string what)
+        internal static void Equal(string expected, string actual, string what)
         {
             checks++;
             if (string.Equals(expected, actual, StringComparison.Ordinal))
@@ -579,7 +580,7 @@ namespace RPMusicPlayer.Tests
             Fail(what + ": expected \"" + expected + "\" but got \"" + (actual ?? "<null>") + "\"");
         }
 
-        private static void Fail(string message)
+        internal static void Fail(string message)
         {
             failures++;
             Console.WriteLine("  FAIL  " + message);

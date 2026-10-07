@@ -100,10 +100,19 @@ Queue:   3 of 42
 On/off settings are shown in green when active. Repeat cycles `off` → `ALL` → `ONE`. The queue row
 appears only once something is playing.
 
+Shuffle randomises the songs still to come, leaving the one that is playing where it is so nothing
+jumps mid song. Turning it on after picking a song reshuffles the rest of that view; turning it off
+leaves the current order alone rather than re-sorting mid queue.
+
 With `Crossfade` on, the next song starts on top of the current one when it has three seconds
 left, so songs blend into each other instead of cutting. Repeat one is excluded: the same song
 restarts cleanly. Next and previous also crossfade while the setting is on, and switching it
 off mid song is instant: the current song simply plays to its end.
+
+Both halves of a crossfade are measured from the moment the incoming song becomes audible, so a
+song that takes a while to load does not leave a gap of silence between the two. A song that will
+not load at all is skipped, and if it arrived mid crossfade the outgoing song carries on rather
+than stopping.
 
 ## Configuration
 
@@ -179,7 +188,7 @@ per vessel queue and playback position are unaffected by going outside.
 
 ```powershell
 dotnet build                 # the plugin
-dotnet run --project Tests   # tag reader and formatting checks
+dotnet run --project Tests   # tag reader, playback queue and formatting checks
 ```
 
 To see what the tag reader makes of a real music folder, outside the game:

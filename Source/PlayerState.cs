@@ -1,15 +1,7 @@
 using System;
-using System.Collections.Generic;
 
 namespace RPMusicPlayer
 {
-    public enum RepeatMode
-    {
-        Off,
-        One,
-        All
-    }
-
     /// <summary>
     /// Everything the player remembers about one vessel: the queue, where playback
     /// got to, and the browser settings that go with it.
@@ -18,19 +10,15 @@ namespace RPMusicPlayer
     {
         internal Guid VesselId;
 
-        /// <summary>Snapshot of the browser view at the moment a song was picked.</summary>
-        internal List<MusicTrack> Queue = new List<MusicTrack>();
-
-        internal int QueueIndex = -1;
+        /// <summary>
+        /// Snapshot of the browser view at the moment a song was picked, plus the
+        /// rules for what plays next. The ordering lives in
+        /// <see cref="PlaybackQueue"/> rather than here so it can be tested on its own.
+        /// </summary>
+        internal PlaybackQueue Playback;
 
         /// <summary>Playback position captured when we paused, in seconds.</summary>
         internal double ResumePosition;
-
-        internal RepeatMode Repeat = RepeatMode.Off;
-        internal bool Shuffle;
-
-        /// <summary>Whether the next song starts on top of the fading out one.</summary>
-        internal bool Crossfade;
 
         /// <summary>Set by the play/pause button.</summary>
         internal bool UserPaused;
@@ -50,27 +38,34 @@ namespace RPMusicPlayer
         internal bool Descending;
         internal int BrowserSelection;
 
-        internal PlayerState(Guid vesselId)
+        internal PlayerState(Guid vesselId, PlaybackQueue playback)
         {
             VesselId = vesselId;
+            Playback = playback;
         }
 
         internal MusicTrack Current
         {
-            get
-            {
-                if (QueueIndex < 0 || QueueIndex >= Queue.Count)
-                {
-                    return null;
-                }
-                return Queue[QueueIndex];
-            }
+            get { return Playback.Current; }
         }
 
         internal bool HasQueue
         {
-            get { return Queue.Count > 0; }
+            get { return Playback.HasQueue; }
         }
+
+        internal RepeatMode Repeat
+        {
+            get { return Playback.Repeat; }
+            set { Playback.Repeat = value; }
+        }
+
+        internal bool Shuffle
+        {
+            get { return Playback.Shuffle; }
+        }
+
+        internal bool Crossfade;
 
         internal void CapturePosition(double seconds)
         {
@@ -85,8 +80,7 @@ namespace RPMusicPlayer
         /// <summary>Drops the queue, e.g. after the music folder was rescanned.</summary>
         internal void ClearQueue()
         {
-            Queue.Clear();
-            QueueIndex = -1;
+            Playback.Clear();
             ResetPosition();
         }
 

@@ -267,10 +267,19 @@ namespace RPMusicPlayer
             PlayerState state;
             if (!states.TryGetValue(vesselId, out state))
             {
-                state = new PlayerState(vesselId);
+                // The queue draws its randomness from here so it can be handed a
+                // deterministic source in tests instead of the game's.
+                var playback = new PlaybackQueue(ShuffledIndex);
+                state = new PlayerState(vesselId, playback);
                 states[vesselId] = state;
             }
             return state;
+        }
+
+        /// <summary>A uniform random integer in [min, max), the way shuffle needs it.</summary>
+        private static int ShuffledIndex(int min, int max)
+        {
+            return UnityEngine.Random.Range(min, max);
         }
 
         /// <summary>
@@ -298,18 +307,12 @@ namespace RPMusicPlayer
                 return;
             }
 
-            state.Queue = new List<MusicTrack>(view);
-            state.QueueIndex = index;
+            state.Playback.Load(view, index);
             state.UserPaused = false;
             state.ContextPaused = false;
             state.AutoResumeOnReturn = false;
             state.ResetPosition();
             CurrentState = state;
-
-            if (state.Shuffle)
-            {
-                ShuffleRemaining(state);
-            }
 
             Audio.Play(state.Current, 0);
             RaisePlaybackChanged();
@@ -363,35 +366,18 @@ namespace RPMusicPlayer
         private void Step(int direction)
         {
             var state = CurrentState;
-            if (state == null || !state.HasQueue)
+            if (state == null)
             {
                 return;
             }
 
-            int next = state.QueueIndex + direction;
-
-            if (next >= state.Queue.Count)
+            if (!state.Playback.TryStep(direction))
             {
-                if (state.Repeat == RepeatMode.One)
-                {
-                    next = state.QueueIndex;
-                }
-                else if (state.Repeat == RepeatMode.All)
-                {
-                    next = 0;
-                }
-                else
-                {
-                    StopAtEndOfQueue(state);
-                    return;
-                }
-            }
-            else if (next < 0)
-            {
-                next = state.Repeat == RepeatMode.All ? state.Queue.Count - 1 : 0;
+                StopAtEndOfQueue(state);
+                return;
             }
 
-            StartQueueIndex(state, next);
+            StartCurrent(state);
         }
 
         private void StopAtEndOfQueue(PlayerState state)
@@ -410,91 +396,126 @@ namespace RPMusicPlayer
                 return;
             }
 
-            if (state.Repeat == RepeatMode.One && state.Current != null)
+            if (!state.Playback.TryAdvance())
             {
-                state.ResetPosition();
-                Audio.Play(state.Current, 0);
-                RaisePlaybackChanged();
+                // Queue finished: stay on the last track instead of looping.
+                StopAtEndOfQueue(state);
                 return;
             }
 
-            int next = state.QueueIndex + 1;
-            if (next >= state.Queue.Count)
-            {
-                if (state.Repeat == RepeatMode.All && state.Queue.Count > 0)
-                {
-                    next = 0;
-                }
-                else
-                {
-                    // Queue finished: stay on the last track instead of looping.
-                    StopAtEndOfQueue(state);
-                    return;
-                }
-            }
-
-            StartQueueIndex(state, next);
+            StartCurrent(state);
         }
 
         /// <summary>
-        /// Crossfade: the current track is inside its last three seconds, so start the
+        /// Crossfade: the current track is inside its last few seconds, so start the
         /// next one now, on top of the one that is fading out. Repeating one song and
         /// a queue that has ended still finish normally.
         /// </summary>
         private void OnTrackNearingEnd()
         {
             var state = CurrentState;
-            if (state == null || !state.Crossfade
-                || state.Repeat == RepeatMode.One || Audio.IsLoading)
+            if (state == null || !state.Crossfade || Audio.IsLoading)
             {
                 return;
             }
 
-            int next = state.QueueIndex + 1;
-            if (next >= state.Queue.Count)
+            if (!state.Playback.CanCrossfade())
             {
-                if (!(state.Repeat == RepeatMode.All && state.Queue.Count > 0))
-                {
-                    return;
-                }
-                next = 0;
+                return;
             }
 
-            StartQueueIndex(state, next);
+            // The queue only moves once the new track is actually playing, so the
+            // crossfade is started here and the index is committed by the load.
+            state.Playback.TryAdvance();
+            StartCurrent(state);
         }
+
+        /// <summary>
+        /// A song that will not load is skipped rather than left in the queue: the
+        /// player used to sit on it in silence, and with repeat on it could come
+        /// back round and fail again. Consecutive failures are counted so a library
+        /// the engine cannot decode at all stops instead of looping.
+        /// </summary>
+        private int loadFailures;
 
         private void OnTrackLoaded(MusicTrack track, AudioClip clip)
         {
+            if (clip == null)
+            {
+                // SkipFailedTrack reports whether it already redrew the page.
+                if (SkipFailedTrack(track))
+                {
+                    return;
+                }
+            }
+            else
+            {
+                loadFailures = 0;
+            }
+
             RaisePlaybackChanged();
         }
 
-        private void StartQueueIndex(PlayerState state, int index)
+        /// <summary>
+        /// Steps past a song that failed to load. Returns true when the next song
+        /// was started, false when there is nowhere left to go.
+        ///
+        /// If the crossfade put the previous song back instead, the queue is moved
+        /// back to match what is actually playing: advancing would start the next
+        /// song on top of it, and the queue would disagree with the audio.
+        /// </summary>
+        private bool SkipFailedTrack(MusicTrack failed)
         {
-            state.QueueIndex = index;
+            var state = CurrentState;
+            if (state == null || !ReferenceEquals(state.Current, failed))
+            {
+                return false;
+            }
+
+            // A queue full of undecodable files would otherwise cycle forever.
+            const int GiveUpAfter = 3;
+            if (++loadFailures >= GiveUpAfter)
+            {
+                Log.Error("'{0}' would not load and the last few songs did not either; stopping.",
+                    failed.FileName);
+                StopAtEndOfQueue(state);
+                return false;
+            }
+
+            Log.Warning("Skipping '{0}'.", failed.FileName);
+
+            if (Audio.ResumedAfterFailure)
+            {
+                // Step back onto the song that is still sounding so the queue and
+                // the audio agree; it advances on its own when it finishes.
+                state.Playback.TryStep(-1);
+                return false;
+            }
+
+            if (!state.Playback.TryAdvance())
+            {
+                StopAtEndOfQueue(state);
+                return false;
+            }
+
+            StartCurrent(state);
+            return true;
+        }
+
+        /// <summary>
+        /// Starts whatever the queue points at now. With crossfade on, what is still
+        /// playing is handed to a second source and fades out underneath; Audio.Play
+        /// falls back to a plain stop when nothing is sounding.
+        /// </summary>
+        private void StartCurrent(PlayerState state)
+        {
             state.UserPaused = false;
             state.ContextPaused = false;
             state.AutoResumeOnReturn = false;
             state.ResetPosition();
 
-            // With crossfade on, whatever is still playing fades out underneath the
-            // new track; Audio.Play falls back to a plain stop when nothing sounds.
             Audio.Play(state.Current, 0, state.Crossfade && Audio.IsPlaying);
             RaisePlaybackChanged();
-        }
-
-        /// <summary>
-        /// Randomises the order of the songs still to come, leaving the current track
-        /// where it is so playback is not interrupted.
-        /// </summary>
-        private static void ShuffleRemaining(PlayerState state)
-        {
-            for (int i = state.Queue.Count - 1; i > state.QueueIndex + 1; i--)
-            {
-                int j = UnityEngine.Random.Range(state.QueueIndex + 1, i + 1);
-                var swap = state.Queue[i];
-                state.Queue[i] = state.Queue[j];
-                state.Queue[j] = swap;
-            }
         }
 
         internal void ToggleShuffle()
@@ -505,11 +526,7 @@ namespace RPMusicPlayer
                 return;
             }
 
-            state.Shuffle = !state.Shuffle;
-            if (state.Shuffle)
-            {
-                ShuffleRemaining(state);
-            }
+            state.Playback.ToggleShuffle();
             RaisePlaybackChanged();
         }
 

@@ -24,8 +24,16 @@ namespace RPMusicPlayer
         // keeps sounding on this second source and fades out.
         private AudioSource fadeSource;
         private AudioClip fadingClip;
-        private float fadeStartedAt;
+
+        /// <summary>The track that was playing when a crossfade began, and the volume it had.</summary>
+        private MusicTrack previousTrack;
         private float fadeFromVolume;
+
+        // The fade out only starts once the incoming track is actually audible.
+        // Starting it when the crossfade begins means any load slower than the
+        // window leaves a gap of silence between the two songs.
+        private bool fadeOutStarted;
+        private float fadeOutStartedAt;
 
         // The freshly started track of a crossfade ramps up from silence instead of
         // starting at full volume.
@@ -54,6 +62,13 @@ namespace RPMusicPlayer
         internal bool IsLoading { get; private set; }
         internal bool IsPlaying { get; private set; }
         internal bool IsPaused { get; private set; }
+
+        /// <summary>
+        /// Set when a song failed to load but the one it was crossfading from was
+        /// put back, so playback is still going. The player uses this to put the
+        /// queue back rather than stepping past a song that is actually playing.
+        /// </summary>
+        internal bool ResumedAfterFailure { get; private set; }
 
         /// <summary>True when something is loaded and the user has not paused it.</summary>
         internal bool IsActive
@@ -170,11 +185,15 @@ namespace RPMusicPlayer
                 return;
             }
 
-            if (fadeOutCurrent && TryBeginFadeOut())
-            {
-                // The old track is fading on the second source; the main source is idle.
-            }
-            else
+            previousTrack = Current;
+            ResumedAfterFailure = false;
+
+            // Hand whatever is sounding to the second source. Whether that worked
+            // decides both whether the old track is stopped outright and whether the
+            // new one fades in: fading in from silence over nothing but an empty
+            // main source is exactly the "fades to nothing" symptom.
+            var crossfading = fadeOutCurrent && TryBeginFadeOut();
+            if (!crossfading)
             {
                 Stop();
             }
@@ -183,7 +202,7 @@ namespace RPMusicPlayer
             IsPaused = false;
             IsLoading = true;
             nearingEndRaised = false;
-            fadeInProgress = fadeOutCurrent;
+            fadeInProgress = crossfading;
             StartCoroutine(LoadAndPlay(track, startAt));
         }
 
@@ -247,6 +266,13 @@ namespace RPMusicPlayer
                 {
                     IsLoading = false;
                     IsPlaying = false;
+
+                    // If a crossfade was under way, the previous song is still
+                    // sounding on the second source. Put it back on the main source
+                    // so a file that will not load costs one song rather than the
+                    // rest of the queue.
+                    ResumedAfterFailure = TryResumeFadedTrack(track);
+
                     var handler = TrackLoaded;
                     if (handler != null)
                     {
@@ -273,9 +299,11 @@ namespace RPMusicPlayer
                 source.Play();
                 if (fadeInProgress)
                 {
-                    // The fade in is measured against the moment the music actually
-                    // starts, not the moment Play was called.
+                    // The crossfade is measured from the moment the new track becomes
+                    // audible, so both halves of it move together and the outgoing
+                    // song is never faded out before anything fades in.
                     fadeInStartedAt = Time.realtimeSinceStartup;
+                    BeginFadeOut();
                 }
                 IsPlaying = true;
 
@@ -488,12 +516,14 @@ namespace RPMusicPlayer
 
         private void UpdateFadeOut()
         {
-            if (fadingClip == null)
+            // While the incoming track is still loading there is nothing to fade
+            // towards, so the outgoing song simply keeps playing at full volume.
+            if (fadingClip == null || !fadeOutStarted)
             {
                 return;
             }
 
-            var elapsed = Time.realtimeSinceStartup - fadeStartedAt;
+            var elapsed = Time.realtimeSinceStartup - fadeOutStartedAt;
             var progress = elapsed / CrossfadeSeconds;
 
             if (progress >= 1f || (elapsed > 0.5f && fadeSource != null && !fadeSource.isPlaying))
@@ -506,6 +536,73 @@ namespace RPMusicPlayer
             {
                 fadeSource.volume = Mathf.Clamp01(fadeFromVolume * (1f - progress));
             }
+        }
+
+        /// <summary>
+        /// Starts the clock on the outgoing track. Called when the incoming track
+        /// becomes audible, so the two always ramp over the same window.
+        /// </summary>
+        private void BeginFadeOut()
+        {
+            if (fadingClip == null || fadeOutStarted)
+            {
+                return;
+            }
+
+            fadeOutStarted = true;
+            fadeOutStartedAt = Time.realtimeSinceStartup;
+        }
+
+        /// <summary>
+        /// Puts a still sounding previous track back on the main source after the
+        /// incoming one failed to load, so playback carries on from where it was.
+        /// </summary>
+        private bool TryResumeFadedTrack(MusicTrack failed)
+        {
+            if (fadeOutStarted || fadingClip == null || fadeSource == null || !fadeSource.isPlaying)
+            {
+                EndFadeOut();
+                return false;
+            }
+
+            var resumed = fadingClip;
+            var position = 0.0;
+            try
+            {
+                position = fadeSource.time;
+            }
+            catch (Exception)
+            {
+                // Not seekable; starting it from the top beats silence.
+            }
+
+            // Detach the clip from the fade source without releasing it: it is about
+            // to become the main source's clip again, and EndFadeOut would destroy it.
+            fadeSource.Stop();
+            fadeSource.clip = null;
+            fadingClip = null;
+            fadeOutStarted = false;
+
+            Current = previousTrack;
+            CurrentClip = resumed;
+            fadeInProgress = false;
+
+            source.clip = resumed;
+            RefreshVolume();
+            Seek(source, resumed, position);
+            source.Play();
+
+            IsPlaying = true;
+            IsPaused = false;
+
+            Log.Info("Could not load '{0}', carried on with '{1}' from {2:F1}s.",
+                trackName(failed), trackName(previousTrack), position);
+            return true;
+        }
+
+        private static string trackName(MusicTrack track)
+        {
+            return track == null ? "<none>" : track.FileName;
         }
 
         /// <summary>
@@ -542,7 +639,7 @@ namespace RPMusicPlayer
 
             fadingClip = CurrentClip;
             fadeFromVolume = fromVolume;
-            fadeStartedAt = Time.realtimeSinceStartup;
+            fadeOutStarted = false;
 
             // The main source forgets the track; the clip now belongs to the fade and
             // is only released once it has ended.
@@ -559,6 +656,8 @@ namespace RPMusicPlayer
         /// <summary>Stops the fade out and releases the clip it was playing.</summary>
         private void EndFadeOut()
         {
+            fadeOutStarted = false;
+
             if (fadeSource != null && fadeSource.isPlaying)
             {
                 fadeSource.Stop();

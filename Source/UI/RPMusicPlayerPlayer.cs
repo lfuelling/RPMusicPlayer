@@ -147,7 +147,7 @@ namespace RPMusicPlayer
             if (state.HasQueue)
             {
                 menu.Add(new TextMenu.Item(
-                    "Queue:   " + (state.QueueIndex + 1) + " of " + state.Queue.Count,
+                    "Queue:   " + (state.Playback.Index + 1) + " of " + state.Playback.Count,
                     null, 0) { isDisabled = true });
             }
 
